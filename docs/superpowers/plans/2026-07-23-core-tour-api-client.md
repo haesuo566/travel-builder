@@ -110,9 +110,9 @@ describe("TourApiClient", () => {
   it("동적 파라미터는 encodeURIComponent로 인코딩된다", async () => {
     getMock.mockResolvedValue(envelope(""));
     const client = new TourApiClient();
-    await client.getAreaBasedList({ arrangeType: "A&B" });
+    await client.getAreaBasedList({ arrange: "A&B" });
     const url = getMock.mock.calls[0][0] as string;
-    expect(url).toContain(`arrangeType=${encodeURIComponent("A&B")}`);
+    expect(url).toContain(`arrange=${encodeURIComponent("A&B")}`);
   });
 
   it("undefined인 선택 파라미터는 쿼리에서 생략된다", async () => {
@@ -224,7 +224,7 @@ export interface TourApiListParams {
   contentTypeId?: string;
   numOfRows?: number;
   pageNo?: number;
-  arrangeType?: string;
+  arrange?: string;
 }
 
 export interface TourApiAreaItem {
@@ -344,7 +344,7 @@ export class TourApiClient {
       cat2: params.cat2,
       cat3: params.cat3,
       contentTypeId: params.contentTypeId,
-      arrangeType: params.arrangeType,
+      arrange: params.arrange,
     });
   }
 
