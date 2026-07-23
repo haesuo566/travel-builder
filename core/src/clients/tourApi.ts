@@ -14,7 +14,8 @@ export interface TourApiListParams {
   contentTypeId?: string;
   numOfRows?: number;
   pageNo?: number;
-  arrangeType?: string;
+  /** 정렬 옵션. TourAPI 실제 쿼리 파라미터명은 arrangeType이 아니라 arrange다. */
+  arrange?: string;
 }
 
 export interface TourApiAreaItem {
@@ -134,7 +135,7 @@ export class TourApiClient {
       cat2: params.cat2,
       cat3: params.cat3,
       contentTypeId: params.contentTypeId,
-      arrangeType: params.arrangeType,
+      arrange: params.arrange,
     });
   }
 

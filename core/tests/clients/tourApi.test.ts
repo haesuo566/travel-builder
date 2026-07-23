@@ -53,9 +53,18 @@ describe("TourApiClient", () => {
   it("동적 파라미터는 encodeURIComponent로 인코딩된다", async () => {
     getMock.mockResolvedValue(envelope(""));
     const client = new TourApiClient();
-    await client.getAreaBasedList({ arrangeType: "A&B" });
+    await client.getAreaBasedList({ arrange: "A&B" });
     const url = getMock.mock.calls[0][0] as string;
-    expect(url).toContain(`arrangeType=${encodeURIComponent("A&B")}`);
+    expect(url).toContain(`arrange=${encodeURIComponent("A&B")}`);
+  });
+
+  it("numOfRows/pageNo를 옵션으로 덮어쓸 수 있다", async () => {
+    getMock.mockResolvedValue(envelope(""));
+    const client = new TourApiClient();
+    await client.getAreaBasedList({ numOfRows: 50, pageNo: 3 });
+    const url = getMock.mock.calls[0][0] as string;
+    expect(url).toContain("numOfRows=50");
+    expect(url).toContain("pageNo=3");
   });
 
   it("undefined인 선택 파라미터는 쿼리에서 생략된다", async () => {
@@ -121,6 +130,12 @@ describe("TourApiClient", () => {
     const url = getMock.mock.calls[0][0] as string;
     expect(url).toContain("detailIntro2?");
     expect(url).toContain("contentTypeId=32");
+  });
+
+  it("getDetailIntro가 결과 없으면 throw한다", async () => {
+    getMock.mockResolvedValue(envelope(""));
+    const client = new TourApiClient();
+    await expect(client.getDetailIntro("999", "32")).rejects.toThrow("999");
   });
 
   it("getDetailImages가 이미지가 없으면 빈 배열을 반환한다", async () => {

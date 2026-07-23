@@ -58,7 +58,7 @@ class TourApiClient {
 
 ### 타입
 
-- `TourApiListParams`: `{ areaCode?: string; sigunguCode?: string; cat1?: string; cat2?: string; cat3?: string; contentTypeId?: string; numOfRows?: number; pageNo?: number; arrangeType?: string }`
+- `TourApiListParams`: `{ areaCode?: string; sigunguCode?: string; cat1?: string; cat2?: string; cat3?: string; contentTypeId?: string; numOfRows?: number; pageNo?: number; arrange?: string }` — 정렬 옵션 필드명은 TourAPI 실제 쿼리 파라미터명인 `arrange`를 따른다(`arrangeType`이 아님).
   - `numOfRows` 기본값 10, `pageNo` 기본값 1 (미지정 시 클라이언트가 채움).
 - `TourApiAreaItem`: `{ contentid: string; contenttypeid: string; title: string; addr1: string; addr2: string; zipcode: string; tel: string; firstimage: string; firstimage2: string; mapx: string; mapy: string; areacode: string; sigungucode: string; cat1: string; cat2: string; cat3: string; createdtime: string; modifiedtime: string }`
 - `TourApiDetailCommon`: `{ contentid: string; contenttypeid: string; title: string; createdtime: string; modifiedtime: string; tel: string; telname: string; homepage: string; firstimage: string; firstimage2: string; areacode: string; sigungucode: string; cat1: string; cat2: string; cat3: string; addr1: string; addr2: string; zipcode: string; mapx: string; mapy: string; overview: string }`
