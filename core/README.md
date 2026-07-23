@@ -35,6 +35,14 @@ npm test        # 1회 실행
 npm run test:watch
 ```
 
+## 타입 체크
+
+`src`와 `tests`를 모두 타입 체크한다 (빌드는 `tsconfig.build.json`으로 `src`만 emit).
+
+```bash
+npm run typecheck
+```
+
 ## 새 명령 추가하기
 
 1. `src/commands/xxx.ts`에 `registerXxx(program: Command)` 함수를 만든다.
