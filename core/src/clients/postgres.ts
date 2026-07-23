@@ -13,11 +13,16 @@ export class PostgresClient {
     this.connectionString = requireEnv("DATABASE_URL");
   }
 
-  /** Pool을 생성하고 SELECT 1로 연결을 확인한다. */
+  /** Pool을 생성하고 SELECT 1로 연결을 확인한다. 검증 실패 시 Pool을 정리하고 재-throw한다. */
   async connect(): Promise<void> {
     if (this.pool) return;
     const pool = new PgPool({ connectionString: this.connectionString });
-    await pool.query("SELECT 1");
+    try {
+      await pool.query("SELECT 1");
+    } catch (error) {
+      await pool.end();
+      throw error;
+    }
     this.pool = pool;
   }
 

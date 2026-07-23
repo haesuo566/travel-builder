@@ -100,4 +100,12 @@ describe("PostgresClient", () => {
     await client.close();
     expect(poolEndMock).toHaveBeenCalledOnce();
   });
+
+  it("connect 검증(SELECT 1) 실패 시 Pool을 end()하고 재-throw한다", async () => {
+    poolQueryMock.mockRejectedValueOnce(new Error("connection refused"));
+    const client = new PostgresClient();
+    await expect(client.connect()).rejects.toThrow("connection refused");
+    expect(poolEndMock).toHaveBeenCalledOnce();
+    await expect(client.query("SELECT 1")).rejects.toThrow("연결");
+  });
 });
