@@ -23,6 +23,7 @@
   "dependencies": {
     "@google/genai": "^2.13.0",
     "@qdrant/js-client-rest": "^1.18.0",
+    "axios": "^1.18.1",
     "commander": "^12.1.0",
     "pg": "^8.22.0"
   },
