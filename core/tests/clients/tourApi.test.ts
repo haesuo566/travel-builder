@@ -220,4 +220,19 @@ describe("TourApiClient", () => {
       "TourAPI: lclsSystmCode2 페이지네이션이 1000페이지를 초과했습니다.",
     );
   });
+
+  it("getLdongRegionList가 lDongListYn=N, lDongRegnCd 없이 요청하고 시도 목록을 반환한다", async () => {
+    const regions = [
+      { code: "11", name: "서울특별시" },
+      { code: "26", name: "부산광역시" },
+    ];
+    getMock.mockResolvedValue(envelope({ item: regions }, "0000", "OK", regions.length));
+    const client = new TourApiClient();
+    const result = await client.getLdongRegionList();
+    expect(result).toEqual(regions);
+    const url = getMock.mock.calls[0][0] as string;
+    expect(url).toContain("ldongCode2?");
+    expect(url).toContain("lDongListYn=N");
+    expect(url).not.toContain("lDongRegnCd=");
+  });
 });

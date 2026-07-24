@@ -82,6 +82,11 @@ export interface TourApiLclsSystmItem {
   lclsSystm3Nm: string;
 }
 
+export interface TourApiLdongCodeItem {
+  code: string;
+  name: string;
+}
+
 interface TourApiEnvelope<T> {
   response: {
     header: { resultCode: string; resultMsg: string };
@@ -224,5 +229,10 @@ export class TourApiClient {
   /** 분류체계(대/중/소분류) 전체 코드 트리를 조회한다. */
   async getLclsSystmTree(): Promise<TourApiLclsSystmItem[]> {
     return this.requestAll<TourApiLclsSystmItem>("lclsSystmCode2", { lclsSystmListYn: "Y" }, 1000);
+  }
+
+  /** 법정동 시도 코드 목록을 조회한다. */
+  async getLdongRegionList(): Promise<TourApiLdongCodeItem[]> {
+    return this.requestAll<TourApiLdongCodeItem>("ldongCode2", { lDongListYn: "N" }, 100);
   }
 }
