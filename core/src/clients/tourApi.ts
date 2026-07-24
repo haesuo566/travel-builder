@@ -87,6 +87,13 @@ export interface TourApiLdongCodeItem {
   name: string;
 }
 
+export interface TourApiLdongItem {
+  lDongRegnCd: string;
+  lDongRegnNm: string;
+  lDongSignguCd: string;
+  lDongSignguNm: string;
+}
+
 interface TourApiEnvelope<T> {
   response: {
     header: { resultCode: string; resultMsg: string };
@@ -234,5 +241,14 @@ export class TourApiClient {
   /** 법정동 시도 코드 목록을 조회한다. */
   async getLdongRegionList(): Promise<TourApiLdongCodeItem[]> {
     return this.requestAll<TourApiLdongCodeItem>("ldongCode2", { lDongListYn: "N" }, 100);
+  }
+
+  /** 특정 시도의 법정동 시군구 코드 목록을 조회한다. */
+  async getLdongSignguList(regnCd: string): Promise<TourApiLdongItem[]> {
+    return this.requestAll<TourApiLdongItem>(
+      "ldongCode2",
+      { lDongRegnCd: regnCd, lDongListYn: "Y" },
+      1000,
+    );
   }
 }

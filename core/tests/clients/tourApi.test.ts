@@ -235,4 +235,18 @@ describe("TourApiClient", () => {
     expect(url).toContain("lDongListYn=N");
     expect(url).not.toContain("lDongRegnCd=");
   });
+
+  it("getLdongSignguList가 lDongRegnCd와 lDongListYn=Y로 요청하고 시군구 목록을 반환한다", async () => {
+    const signgus = [
+      { lDongRegnCd: "11", lDongRegnNm: "서울특별시", lDongSignguCd: "110", lDongSignguNm: "종로구" },
+    ];
+    getMock.mockResolvedValue(envelope({ item: signgus }, "0000", "OK", signgus.length));
+    const client = new TourApiClient();
+    const result = await client.getLdongSignguList("11");
+    expect(result).toEqual(signgus);
+    const url = getMock.mock.calls[0][0] as string;
+    expect(url).toContain("ldongCode2?");
+    expect(url).toContain("lDongRegnCd=11");
+    expect(url).toContain("lDongListYn=Y");
+  });
 });
