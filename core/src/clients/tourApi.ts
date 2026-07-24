@@ -4,6 +4,7 @@ import { optionalEnv, requireEnv } from "../lib/env.js";
 const MOBILE_OS = "ETC";
 const MOBILE_APP = "travel-builder";
 const DEFAULT_BASE_URL = "https://apis.data.go.kr/B551011/KorService2";
+const MAX_PAGES = 1000;
 
 export interface TourApiListParams {
   areaCode?: string;
@@ -141,6 +142,11 @@ export class TourApiClient {
     const results: T[] = [];
     let pageNo = 1;
     while (true) {
+      if (pageNo > MAX_PAGES) {
+        throw new Error(
+          `TourAPI: ${path} 페이지네이션이 ${MAX_PAGES}페이지를 초과했습니다.`,
+        );
+      }
       const url = this.buildUrl(path, { ...params, numOfRows, pageNo });
       const { data } = await axios.get<TourApiEnvelope<T>>(url);
       if (data.response.header.resultCode !== "0000") {

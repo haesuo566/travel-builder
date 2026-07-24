@@ -209,4 +209,15 @@ describe("TourApiClient", () => {
     const secondUrl = getMock.mock.calls[1][0] as string;
     expect(secondUrl).toContain("pageNo=2");
   });
+
+  it("getLclsSystmTree가 페이지 상한을 초과하면 throw한다", async () => {
+    const item = { lclsSystm1Cd: "AC", lclsSystm1Nm: "숙박" };
+    // totalCount를 매우 크게 설정하여 절대 도달하지 않도록 한다.
+    // 매 페이지마다 1개만 반환되므로 1000페이지를 초과할 때까지 루프가 계속된다.
+    getMock.mockResolvedValue(envelope({ item }, "0000", "OK", 999999));
+    const client = new TourApiClient();
+    await expect(client.getLclsSystmTree()).rejects.toThrow(
+      "TourAPI: lclsSystmCode2 페이지네이션이 1000페이지를 초과했습니다.",
+    );
+  });
 });
