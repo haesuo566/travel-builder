@@ -60,6 +60,30 @@ async function upsertContentTypes(client: PoolClient): Promise<number> {
   return CONTENT_TYPES.length;
 }
 
+async function upsertLclsSystmCodes(client: PoolClient, tourApi: TourApiClient): Promise<number> {
+  const items = await tourApi.getLclsSystmTree();
+  for (const item of items) {
+    await client.query(
+      `INSERT INTO tour_lcls_systm_codes
+         (lvl1_code, lvl1_name, lvl2_code, lvl2_name, lvl3_code, lvl3_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (lvl1_code, lvl2_code, lvl3_code) DO UPDATE SET
+         lvl1_name = EXCLUDED.lvl1_name,
+         lvl2_name = EXCLUDED.lvl2_name,
+         lvl3_name = EXCLUDED.lvl3_name`,
+      [
+        item.lclsSystm1Cd,
+        item.lclsSystm1Nm,
+        item.lclsSystm2Cd,
+        item.lclsSystm2Nm,
+        item.lclsSystm3Cd,
+        item.lclsSystm3Nm,
+      ],
+    );
+  }
+  return items.length;
+}
+
 /** TourAPI 코드표(관광타입/법정동/분류체계)를 Postgres에 적재한다. */
 export async function generateTourCodes(
   tourApi: TourApiClient,
@@ -68,9 +92,10 @@ export async function generateTourCodes(
   return pg.transaction(async (client) => {
     await createTables(client);
     const contentTypeCount = await upsertContentTypes(client);
+    const lclsSystmCount = await upsertLclsSystmCodes(client, tourApi);
     return {
       contentTypeCount,
-      lclsSystmCount: 0,
+      lclsSystmCount,
       ldongRegionCount: 0,
       ldongSignguCount: 0,
     };

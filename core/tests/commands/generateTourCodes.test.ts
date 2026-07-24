@@ -53,4 +53,34 @@ describe("generateTourCodes", () => {
     expect(contentTypeInserts).toHaveLength(8);
     expect(contentTypeInserts[0][1]).toEqual(["12", "관광지"]);
   });
+
+  it("getLclsSystmTree 결과를 전부 upsert하고 카운트를 반환한다", async () => {
+    const { pg, queryMock } = fakePg();
+    const items = [
+      {
+        lclsSystm1Cd: "AC",
+        lclsSystm1Nm: "숙박",
+        lclsSystm2Cd: "AC01",
+        lclsSystm2Nm: "호텔",
+        lclsSystm3Cd: "AC010100",
+        lclsSystm3Nm: "호텔",
+      },
+      {
+        lclsSystm1Cd: "FD",
+        lclsSystm1Nm: "음식",
+        lclsSystm2Cd: "FD01",
+        lclsSystm2Nm: "한식",
+        lclsSystm3Cd: "FD010100",
+        lclsSystm3Nm: "한식",
+      },
+    ];
+    const tourApi = fakeTourApi({ getLclsSystmTree: vi.fn().mockResolvedValue(items) });
+    const result = await generateTourCodes(tourApi, pg);
+    expect(result.lclsSystmCount).toBe(2);
+    const lclsInserts = queryMock.mock.calls.filter((c) =>
+      (c[0] as string).includes("INSERT INTO tour_lcls_systm_codes"),
+    );
+    expect(lclsInserts).toHaveLength(2);
+    expect(lclsInserts[0][1]).toEqual(["AC", "숙박", "AC01", "호텔", "AC010100", "호텔"]);
+  });
 });
