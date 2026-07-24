@@ -84,6 +84,35 @@ async function upsertLclsSystmCodes(client: PoolClient, tourApi: TourApiClient):
   return items.length;
 }
 
+async function upsertLdongCodes(
+  client: PoolClient,
+  tourApi: TourApiClient,
+): Promise<{ regionCount: number; signguCount: number }> {
+  const regions = await tourApi.getLdongRegionList();
+  let signguCount = 0;
+  for (const region of regions) {
+    await client.query(
+      `INSERT INTO tour_ldong_codes (regn_code, regn_name, signgu_code, signgu_name)
+       VALUES ($1, $2, '', '')
+       ON CONFLICT (regn_code, signgu_code) DO UPDATE SET regn_name = EXCLUDED.regn_name`,
+      [region.code, region.name],
+    );
+    const signgus = await tourApi.getLdongSignguList(region.code);
+    for (const signgu of signgus) {
+      await client.query(
+        `INSERT INTO tour_ldong_codes (regn_code, regn_name, signgu_code, signgu_name)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (regn_code, signgu_code) DO UPDATE SET
+           regn_name = EXCLUDED.regn_name,
+           signgu_name = EXCLUDED.signgu_name`,
+        [signgu.lDongRegnCd, signgu.lDongRegnNm, signgu.lDongSignguCd, signgu.lDongSignguNm],
+      );
+    }
+    signguCount += signgus.length;
+  }
+  return { regionCount: regions.length, signguCount };
+}
+
 /** TourAPI 코드표(관광타입/법정동/분류체계)를 Postgres에 적재한다. */
 export async function generateTourCodes(
   tourApi: TourApiClient,
@@ -93,11 +122,12 @@ export async function generateTourCodes(
     await createTables(client);
     const contentTypeCount = await upsertContentTypes(client);
     const lclsSystmCount = await upsertLclsSystmCodes(client, tourApi);
+    const { regionCount, signguCount } = await upsertLdongCodes(client, tourApi);
     return {
       contentTypeCount,
       lclsSystmCount,
-      ldongRegionCount: 0,
-      ldongSignguCount: 0,
+      ldongRegionCount: regionCount,
+      ldongSignguCount: signguCount,
     };
   });
 }

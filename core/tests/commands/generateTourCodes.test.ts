@@ -83,4 +83,28 @@ describe("generateTourCodes", () => {
     expect(lclsInserts).toHaveLength(2);
     expect(lclsInserts[0][1]).toEqual(["AC", "숙박", "AC01", "호텔", "AC010100", "호텔"]);
   });
+
+  it("시도 목록과 시도별 시군구 목록을 모두 upsert하고 카운트를 반환한다", async () => {
+    const { pg, queryMock } = fakePg();
+    const regions = [
+      { code: "11", name: "서울특별시" },
+      { code: "26", name: "부산광역시" },
+    ];
+    const signgusByRegion: Record<string, unknown[]> = {
+      "11": [{ lDongRegnCd: "11", lDongRegnNm: "서울특별시", lDongSignguCd: "110", lDongSignguNm: "종로구" }],
+      "26": [],
+    };
+    const tourApi = fakeTourApi({
+      getLdongRegionList: vi.fn().mockResolvedValue(regions),
+      getLdongSignguList: vi.fn((regnCd: string) => Promise.resolve(signgusByRegion[regnCd])),
+    });
+    const result = await generateTourCodes(tourApi, pg);
+    expect(result.ldongRegionCount).toBe(2);
+    expect(result.ldongSignguCount).toBe(1);
+    const ldongInserts = queryMock.mock.calls.filter((c) =>
+      (c[0] as string).includes("INSERT INTO tour_ldong_codes"),
+    );
+    // 시도 2건(빈 시군구 sentinel) + 시군구 1건 = 3건
+    expect(ldongInserts).toHaveLength(3);
+  });
 });
