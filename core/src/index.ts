@@ -13,4 +13,4 @@ program
 registerHello(program);
 registerGenerateTourCodes(program);
 
-program.parse();
+await program.parseAsync();
