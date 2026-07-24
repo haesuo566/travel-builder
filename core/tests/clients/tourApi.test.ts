@@ -8,12 +8,12 @@ vi.mock("axios", () => ({
 
 import { TourApiClient } from "../../src/clients/tourApi.js";
 
-function envelope(items: unknown, resultCode = "0000", resultMsg = "OK") {
+function envelope(items: unknown, resultCode = "0000", resultMsg = "OK", totalCount = 0) {
   return {
     data: {
       response: {
         header: { resultCode, resultMsg },
-        body: { items, numOfRows: 10, pageNo: 1, totalCount: 0 },
+        body: { items, numOfRows: 10, pageNo: 1, totalCount },
       },
     },
   };
@@ -154,5 +154,59 @@ describe("TourApiClient", () => {
     const client = new TourApiClient();
     const result = await client.getDetailImages("1");
     expect(result).toEqual(images);
+  });
+
+  it("getLclsSystmTree가 lclsSystmListYn=Y로 요청하고 전체 트리를 반환한다 (단일 페이지)", async () => {
+    const items = [
+      {
+        lclsSystm1Cd: "AC",
+        lclsSystm1Nm: "숙박",
+        lclsSystm2Cd: "AC01",
+        lclsSystm2Nm: "호텔",
+        lclsSystm3Cd: "AC010100",
+        lclsSystm3Nm: "호텔",
+      },
+    ];
+    getMock.mockResolvedValue(envelope({ item: items }, "0000", "OK", items.length));
+    const client = new TourApiClient();
+    const result = await client.getLclsSystmTree();
+    expect(result).toEqual(items);
+    const url = getMock.mock.calls[0][0] as string;
+    expect(url).toContain("lclsSystmCode2?");
+    expect(url).toContain("lclsSystmListYn=Y");
+    expect(url).toContain("numOfRows=1000");
+    expect(url).toContain("pageNo=1");
+  });
+
+  it("getLclsSystmTree가 totalCount보다 적게 받으면 다음 페이지를 이어서 요청한다", async () => {
+    const page1 = [
+      {
+        lclsSystm1Cd: "AC",
+        lclsSystm1Nm: "숙박",
+        lclsSystm2Cd: "AC01",
+        lclsSystm2Nm: "호텔",
+        lclsSystm3Cd: "AC010100",
+        lclsSystm3Nm: "호텔",
+      },
+    ];
+    const page2 = [
+      {
+        lclsSystm1Cd: "FD",
+        lclsSystm1Nm: "음식",
+        lclsSystm2Cd: "FD01",
+        lclsSystm2Nm: "한식",
+        lclsSystm3Cd: "FD010100",
+        lclsSystm3Nm: "한식",
+      },
+    ];
+    getMock
+      .mockResolvedValueOnce(envelope({ item: page1 }, "0000", "OK", 2))
+      .mockResolvedValueOnce(envelope({ item: page2 }, "0000", "OK", 2));
+    const client = new TourApiClient();
+    const result = await client.getLclsSystmTree();
+    expect(result).toEqual([...page1, ...page2]);
+    expect(getMock).toHaveBeenCalledTimes(2);
+    const secondUrl = getMock.mock.calls[1][0] as string;
+    expect(secondUrl).toContain("pageNo=2");
   });
 });

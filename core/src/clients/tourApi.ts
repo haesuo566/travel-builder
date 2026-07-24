@@ -72,6 +72,15 @@ export interface TourApiImage {
   cpyrhtDivCd: string;
 }
 
+export interface TourApiLclsSystmItem {
+  lclsSystm1Cd: string;
+  lclsSystm1Nm: string;
+  lclsSystm2Cd: string;
+  lclsSystm2Nm: string;
+  lclsSystm3Cd: string;
+  lclsSystm3Nm: string;
+}
+
 interface TourApiEnvelope<T> {
   response: {
     header: { resultCode: string; resultMsg: string };
@@ -122,6 +131,31 @@ export class TourApiClient {
       );
     }
     return normalizeItems(data.response.body.items);
+  }
+
+  private async requestAll<T>(
+    path: string,
+    params: Record<string, string | number | undefined>,
+    numOfRows: number,
+  ): Promise<T[]> {
+    const results: T[] = [];
+    let pageNo = 1;
+    while (true) {
+      const url = this.buildUrl(path, { ...params, numOfRows, pageNo });
+      const { data } = await axios.get<TourApiEnvelope<T>>(url);
+      if (data.response.header.resultCode !== "0000") {
+        throw new Error(
+          `TourAPI 오류(${data.response.header.resultCode}): ${data.response.header.resultMsg}`,
+        );
+      }
+      const items = normalizeItems(data.response.body.items);
+      results.push(...items);
+      if (items.length === 0 || results.length >= data.response.body.totalCount) {
+        break;
+      }
+      pageNo += 1;
+    }
+    return results;
   }
 
   /** 지역기반 관광정보 목록을 조회한다. */
@@ -179,5 +213,10 @@ export class TourApiClient {
       numOfRows: 100,
       pageNo: 1,
     });
+  }
+
+  /** 분류체계(대/중/소분류) 전체 코드 트리를 조회한다. */
+  async getLclsSystmTree(): Promise<TourApiLclsSystmItem[]> {
+    return this.requestAll<TourApiLclsSystmItem>("lclsSystmCode2", { lclsSystmListYn: "Y" }, 1000);
   }
 }
