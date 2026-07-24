@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { registerHello } from "./commands/hello.js";
+import { registerGenerateTourCodes } from "./commands/generateTourCodes.js";
 
 const program = new Command();
 
@@ -10,5 +11,6 @@ program
   .version("0.1.0");
 
 registerHello(program);
+registerGenerateTourCodes(program);
 
 program.parse();

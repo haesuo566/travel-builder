@@ -1,6 +1,8 @@
+import type { Command } from "commander";
 import type { PoolClient } from "pg";
-import type { TourApiClient } from "../clients/tourApi.js";
-import type { PostgresClient } from "../clients/postgres.js";
+import { TourApiClient } from "../clients/tourApi.js";
+import { PostgresClient } from "../clients/postgres.js";
+import { logger } from "../lib/logger.js";
 
 const CONTENT_TYPES: Array<{ code: string; name: string }> = [
   { code: "12", name: "관광지" },
@@ -130,4 +132,26 @@ export async function generateTourCodes(
       ldongSignguCount: signguCount,
     };
   });
+}
+
+/** commander program에 `generate-tour-codes` 명령을 등록한다. */
+export function registerGenerateTourCodes(program: Command): void {
+  program
+    .command("generate-tour-codes")
+    .description("TourAPI 코드표(관광타입/법정동/분류체계)를 Postgres에 적재")
+    .action(async () => {
+      const tourApi = new TourApiClient();
+      const pg = new PostgresClient();
+      await pg.connect();
+      try {
+        const result = await generateTourCodes(tourApi, pg);
+        logger.info(
+          `코드표 적재 완료 — 관광타입 ${result.contentTypeCount}건, ` +
+            `분류체계 ${result.lclsSystmCount}건, ` +
+            `법정동 시도 ${result.ldongRegionCount}건/시군구 ${result.ldongSignguCount}건`,
+        );
+      } finally {
+        await pg.close();
+      }
+    });
 }
