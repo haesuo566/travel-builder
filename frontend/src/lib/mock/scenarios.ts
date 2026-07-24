@@ -1,12 +1,6 @@
 import type { Itinerary } from "../types";
 import { findDestinationKeyForMessage, getItineraryByDestinationKey } from "./itineraries";
 
-const DESTINATION_LABELS: Record<string, string> = {
-  seoul: "서울",
-  busan: "부산",
-  jeju: "제주",
-};
-
 export interface ScenarioResult {
   reply: string;
   itinerary: Itinerary;
@@ -21,7 +15,7 @@ export function generateAssistantReply(
   if (destinationKey) {
     const itinerary = getItineraryByDestinationKey(destinationKey);
     return {
-      reply: `${DESTINATION_LABELS[destinationKey]} ${itinerary.summary.duration} 일정을 준비했어요! 오른쪽에서 Day별 코스를 확인해보세요.`,
+      reply: `${itinerary.summary.destination} ${itinerary.summary.duration} 일정을 준비했어요! 오른쪽에서 Day별 코스를 확인해보세요.`,
       itinerary,
     };
   }
