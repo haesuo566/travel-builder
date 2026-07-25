@@ -148,11 +148,16 @@ describe("markDetailFailure", () => {
 });
 
 describe("countByStatus", () => {
-  it("집계 결과를 채우고 없는 상태는 0으로 만든다", async () => {
+  it("pg 드라이버가 문자열로 주는 count를 숫자로 변환한다", async () => {
     const { pg } = fakePg([
-      { detail_status: "pending", count: 10 },
-      { detail_status: "done", count: 5 },
+      { detail_status: "pending", count: "10" },
+      { detail_status: "done", count: "5" },
     ]);
     expect(await countByStatus(pg)).toEqual({ pending: 10, done: 5, nodata: 0, failed: 0 });
+  });
+
+  it("집계에 없는 상태는 0으로 채운다", async () => {
+    const { pg } = fakePg([{ detail_status: "failed", count: "3" }]);
+    expect(await countByStatus(pg)).toEqual({ pending: 0, done: 0, nodata: 0, failed: 3 });
   });
 });
