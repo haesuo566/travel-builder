@@ -3,7 +3,13 @@ import type { PoolClient } from "pg";
 import {
   createTourContentsTable,
   upsertListedContents,
+  claimPendingContents,
+  markDetailDone,
+  markDetailNodata,
+  markDetailFailure,
+  countByStatus,
 } from "../../src/lib/tourContentsTable.js";
+import type { PostgresClient } from "../../src/clients/postgres.js";
 import type { TourContentRow } from "../../src/lib/tourContent.js";
 
 function fakeClient() {
@@ -74,5 +80,79 @@ describe("upsertListedContents", () => {
     const { client, queryMock } = fakeClient();
     await upsertListedContents(client, []);
     expect(queryMock).not.toHaveBeenCalled();
+  });
+});
+
+function fakePg(rows: unknown[] = []) {
+  const queryMock = vi.fn().mockResolvedValue({ rows });
+  return { pg: { query: queryMock } as unknown as PostgresClient, queryMock };
+}
+
+describe("claimPendingContents", () => {
+  it("pending만 limit개 골라 contentid 배열로 반환한다", async () => {
+    const { pg, queryMock } = fakePg([{ contentid: "1" }, { contentid: "2" }]);
+    const ids = await claimPendingContents(pg, 900);
+    expect(ids).toEqual(["1", "2"]);
+    const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("detail_status = 'pending'");
+    expect(sql).toContain("LIMIT $1");
+    expect(params).toEqual([900]);
+  });
+});
+
+describe("markDetailDone", () => {
+  it("overview와 done 상태, 조회 시각을 기록하고 last_error를 지운다", async () => {
+    const { pg, queryMock } = fakePg();
+    await markDetailDone(pg, "126508", "경복궁 설명");
+    const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("detail_status = 'done'");
+    expect(sql).toContain("detail_fetched_at = now()");
+    expect(sql).toMatch(/last_error\s+= NULL/);
+    expect(params).toEqual(["126508", "경복궁 설명"]);
+  });
+});
+
+describe("markDetailNodata", () => {
+  it("overview를 빈 문자열로 두고 nodata로 종결한다", async () => {
+    const { pg, queryMock } = fakePg();
+    await markDetailNodata(pg, "999");
+    const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("detail_status = 'nodata'");
+    expect(sql).toMatch(/overview\s+= ''/);
+    expect(params).toEqual(["999"]);
+  });
+});
+
+describe("markDetailFailure", () => {
+  it("단일 UPDATE로 시도횟수를 올리고 CASE로 상태를 전이한다", async () => {
+    const { pg, queryMock } = fakePg([{ detail_status: "pending" }]);
+    const status = await markDetailFailure(pg, "1", "ECONNRESET", 3);
+    expect(status).toBe("pending");
+    const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(sql).toContain("attempt_count = attempt_count + 1");
+    expect(sql).toContain("CASE WHEN attempt_count + 1 >= $3 THEN 'failed' ELSE 'pending' END");
+    expect(sql).toContain("RETURNING detail_status");
+    expect(params).toEqual(["1", "ECONNRESET", 3]);
+  });
+
+  it("maxAttempts에 도달하면 failed를 반환한다", async () => {
+    const { pg } = fakePg([{ detail_status: "failed" }]);
+    expect(await markDetailFailure(pg, "1", "ECONNRESET", 3)).toBe("failed");
+  });
+
+  it("대상 행이 없으면 pending으로 간주한다", async () => {
+    const { pg } = fakePg([]);
+    expect(await markDetailFailure(pg, "없음", "err", 3)).toBe("pending");
+  });
+});
+
+describe("countByStatus", () => {
+  it("집계 결과를 채우고 없는 상태는 0으로 만든다", async () => {
+    const { pg } = fakePg([
+      { detail_status: "pending", count: 10 },
+      { detail_status: "done", count: 5 },
+    ]);
+    expect(await countByStatus(pg)).toEqual({ pending: 10, done: 5, nodata: 0, failed: 0 });
   });
 });

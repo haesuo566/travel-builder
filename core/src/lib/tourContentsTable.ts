@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import type { TourContentRow } from "./tourContent.js";
+import type { PostgresClient } from "../clients/postgres.js";
 
 export type DetailStatus = "pending" | "done" | "nodata" | "failed";
 
@@ -93,4 +94,90 @@ export async function upsertListedContents(
       row.modifiedtime,
     ]);
   }
+}
+
+/** 아직 상세를 받지 않은 항목을 limit개 고른다. 이 조회 자체가 '남은 일 목록'이자 재개 지점이다. */
+export async function claimPendingContents(
+  pg: PostgresClient,
+  limit: number,
+): Promise<string[]> {
+  const result = await pg.query<{ contentid: string }>(
+    `SELECT contentid FROM tour_contents
+     WHERE detail_status = 'pending'
+     ORDER BY contentid
+     LIMIT $1`,
+    [limit],
+  );
+  return result.rows.map((r) => r.contentid);
+}
+
+/** 상세 수집 성공을 기록한다. */
+export async function markDetailDone(
+  pg: PostgresClient,
+  contentid: string,
+  overview: string,
+): Promise<void> {
+  await pg.query(
+    `UPDATE tour_contents SET
+       overview      = $2,
+       detail_status = 'done',
+       last_error    = NULL,
+       detail_fetched_at = now()
+     WHERE contentid = $1`,
+    [contentid, overview],
+  );
+}
+
+/** NODATA를 종결 처리한다. overview NULL(미조회)과 ''(조회했으나 내용 없음)을 구분한다. */
+export async function markDetailNodata(pg: PostgresClient, contentid: string): Promise<void> {
+  await pg.query(
+    `UPDATE tour_contents SET
+       overview      = '',
+       detail_status = 'nodata',
+       last_error    = NULL,
+       detail_fetched_at = now()
+     WHERE contentid = $1`,
+    [contentid],
+  );
+}
+
+/**
+ * 일시적 오류를 기록한다. 증가와 전이를 단일 UPDATE로 처리해 읽기-판단-쓰기 경합을 없앤다.
+ * 반환값으로 호출자가 '재시도 대기'와 '영구 제외'를 구분해 집계한다.
+ */
+export async function markDetailFailure(
+  pg: PostgresClient,
+  contentid: string,
+  error: string,
+  maxAttempts: number,
+): Promise<DetailStatus> {
+  const result = await pg.query<{ detail_status: DetailStatus }>(
+    `UPDATE tour_contents SET
+       attempt_count = attempt_count + 1,
+       last_error    = $2,
+       detail_status = CASE WHEN attempt_count + 1 >= $3 THEN 'failed' ELSE 'pending' END
+     WHERE contentid = $1
+     RETURNING detail_status`,
+    [contentid, error, maxAttempts],
+  );
+  return result.rows[0]?.detail_status ?? "pending";
+}
+
+const ALL_STATUSES: DetailStatus[] = ["pending", "done", "nodata", "failed"];
+
+/** 상태별 건수. 집계에 없는 상태는 0으로 채워 호출자의 undefined 분기를 없앤다. */
+export async function countByStatus(
+  pg: PostgresClient,
+): Promise<Record<DetailStatus, number>> {
+  const result = await pg.query<{ detail_status: DetailStatus; count: string | number }>(
+    `SELECT detail_status, COUNT(*) AS count FROM tour_contents GROUP BY detail_status`,
+  );
+  const counts = Object.fromEntries(ALL_STATUSES.map((s) => [s, 0])) as Record<
+    DetailStatus,
+    number
+  >;
+  for (const row of result.rows) {
+    counts[row.detail_status] = Number(row.count);
+  }
+  return counts;
 }
