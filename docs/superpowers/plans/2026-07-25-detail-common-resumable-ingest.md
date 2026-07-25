@@ -1324,6 +1324,13 @@ git commit -m "feat(core): collectList 서비스 추가 (syncList 페이지 순�
 
 이 계획의 핵심. 쿼터 예산 내에서 pending을 소진하고, 에러를 성격별로 분기한다.
 
+> **개정 (실행 중 리뷰 반영).** 아래 Step 3의 코드는 **초안이며 실제 구현과 다르다.** 리뷰에서 Critical 1건이 나와 다음이 추가·수정됐다. 현재 상태는 `core/src/services/collectDetail.ts`와 스펙 문서를 보라.
+> - `stoppedBy`에 **`"aborted"`** 추가 — 아래 초안의 3값 union은 4값이다
+> - **연속 실패 차단기(임계 10)** — 아래 초안에는 없다. 서비스 키 만료·상위 5xx·네트워크 단절은 `isQuotaExceeded`도 `isNoData`도 아니라 일반 오류로 들어오는데, 초안대로면 claim한 900건 전부에 `markDetailFailure`가 호출되어 사흘이면 멀쩡한 콘텐츠 2,700건이 영구 제외된다
+> - **`try` 범위를 API 호출로 축소** — 초안은 DB 쓰기까지 감싸 `markDetailDone` 실패를 데이터 문제로 오분류했다
+> - **`logger.error` 추가** — 초안은 실패를 전혀 로깅하지 않았다
+> - **예산 미소진으로 끝나면 `stoppedBy`를 `"no-pending"`으로 정정** — 초안은 항상 `"budget"`을 반환했다
+
 **세 가지 불변식:**
 1. **한도 초과 시 해당 항목의 상태를 절대 바꾸지 않고 즉시 중단한다.** 쿼터 소진은 데이터의 문제가 아니라 호출자 사정이다. 실패로 세면 매일 쿼터가 끝나는 지점의 항목이 사흘 만에 `failed`로 영구 제외된다.
 2. **건당 커밋.** 배치 트랜잭션으로 감싸면 중간에 죽을 때 이미 소비한 API 호출이 롤백과 함께 증발한다. 쿼터는 롤백되지 않는다.
@@ -1704,6 +1711,12 @@ describe("formatCollectDetailSummary", () => {
     expect(text).toContain("다른 작업");
   });
 
+  it("연속 실패 중단이면 서비스 키와 네트워크를 확인하라고 안내한다", () => {
+    const text = formatCollectDetailSummary(result({ stoppedBy: "aborted" }));
+    expect(text).toContain("연속 실패");
+    expect(text).toContain("서비스 키");
+  });
+
   it("pending이 없으면 완료를 알린다", () => {
     const text = formatCollectDetailSummary(
       result({ stoppedBy: "no-pending", processed: 0, done: 0, nodata: 0, retryScheduled: 0, remainingPending: 0 }),
@@ -1792,6 +1805,8 @@ const NEXT_STEP: Record<CollectDetailResult["stoppedBy"], string> = {
   budget: "내일 다시 실행하세요.",
   "quota-exceeded":
     "API 일일 한도에 도달했습니다. 다른 작업이 한도를 사용했는지 확인하세요.",
+  aborted:
+    "연속 실패로 중단했습니다. 서비스 키 만료 여부와 네트워크를 확인한 뒤 다시 실행하세요.",
   "no-pending": "모든 항목 처리 완료.",
 };
 
