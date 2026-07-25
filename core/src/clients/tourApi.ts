@@ -40,6 +40,48 @@ export interface TourApiAreaItem {
   modifiedtime: string;
 }
 
+/** areaBasedSyncList2 응답 항목 (KorService2 v4.4). */
+export interface TourApiSyncItem {
+  contentid: string;
+  contenttypeid: string;
+  title: string;
+  mapx: string;
+  mapy: string;
+  addr1: string;
+  addr2: string;
+  zipcode: string;
+  lDongRegnCd: string;
+  lDongSignguCd: string;
+  lclsSystm1: string;
+  lclsSystm2: string;
+  lclsSystm3: string;
+  createdtime: string;
+  modifiedtime: string;
+  showflag: string;
+}
+
+/** 페이지네이션 정보를 포함한 한 페이지 응답. */
+export interface TourApiPage<T> {
+  items: T[];
+  totalCount: number;
+  pageNo: number;
+  numOfRows: number;
+}
+
+export interface TourApiSyncListParams {
+  pageNo: number;
+  numOfRows: number;
+  contentTypeId?: string;
+  lDongRegnCd?: string;
+  lDongSignguCd?: string;
+  lclsSystm1?: string;
+  lclsSystm2?: string;
+  lclsSystm3?: string;
+  showflag?: "0" | "1";
+  modifiedtime?: string;
+  arrange?: string;
+}
+
 export interface TourApiDetailCommon {
   contentid: string;
   contenttypeid: string;
@@ -195,6 +237,22 @@ export class TourApiClient {
     return normalizeItems(envelope.response.body.items);
   }
 
+  private async requestPage<T>(
+    path: string,
+    params: Record<string, string | number | undefined>,
+  ): Promise<TourApiPage<T>> {
+    const url = this.buildUrl(path, params);
+    const { data } = await axios.get<unknown>(url);
+    const envelope = parseEnvelope<T>(data);
+    const body = envelope.response.body;
+    return {
+      items: normalizeItems(body.items),
+      totalCount: body.totalCount,
+      pageNo: body.pageNo,
+      numOfRows: body.numOfRows,
+    };
+  }
+
   private async requestAll<T>(
     path: string,
     params: Record<string, string | number | undefined>,
@@ -237,20 +295,36 @@ export class TourApiClient {
     });
   }
 
-  /** 관광지 공통정보를 조회한다. */
-  async getDetailCommon(contentId: string): Promise<TourApiDetailCommon> {
-    const items = await this.request<TourApiDetailCommon>("detailCommon2", {
-      contentId,
-      defaultYN: "Y",
-      firstImageYN: "Y",
-      areacodeYN: "Y",
-      catcodeYN: "Y",
-      addrinfoYN: "Y",
-      mapinfoYN: "Y",
-      overviewYN: "Y",
+  /** 동기화 목록(areaBasedSyncList2) 한 페이지를 조회한다. */
+  async getAreaBasedSyncList(params: TourApiSyncListParams): Promise<TourApiPage<TourApiSyncItem>> {
+    return this.requestPage<TourApiSyncItem>("areaBasedSyncList2", {
+      pageNo: params.pageNo,
+      numOfRows: params.numOfRows,
+      contentTypeId: params.contentTypeId,
+      lDongRegnCd: params.lDongRegnCd,
+      lDongSignguCd: params.lDongSignguCd,
+      lclsSystm1: params.lclsSystm1,
+      lclsSystm2: params.lclsSystm2,
+      lclsSystm3: params.lclsSystm3,
+      showflag: params.showflag,
+      modifiedtime: params.modifiedtime,
+      arrange: params.arrange,
     });
+  }
+
+  /**
+   * 관광지 공통정보를 조회한다.
+   * v4.3에서 defaultYN/firstImageYN/areacodeYN/catcodeYN/addrinfoYN/mapinfoYN/overviewYN이
+   * 삭제되어 contentId만 전송한다.
+   * 결과가 없으면 NODATA(03)로 던져 호출자가 isNoData로 종결 처리할 수 있게 한다.
+   */
+  async getDetailCommon(contentId: string): Promise<TourApiDetailCommon> {
+    const items = await this.request<TourApiDetailCommon>("detailCommon2", { contentId });
     if (items.length === 0) {
-      throw new Error(`TourAPI: contentId=${contentId}에 대한 공통정보를 찾을 수 없습니다.`);
+      throw new TourApiError(
+        "03",
+        `contentId=${contentId}에 대한 공통정보를 찾을 수 없습니다.`,
+      );
     }
     return items[0];
   }

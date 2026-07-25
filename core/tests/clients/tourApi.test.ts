@@ -294,4 +294,91 @@ describe("TourApiClient", () => {
     const client = new TourApiClient();
     await expect(client.getAreaBasedList()).rejects.toMatchObject({ resultCode: "UNKNOWN" });
   });
+
+  it("getAreaBasedSyncList가 필터와 페이지 정보를 전송하고 TourApiPage를 반환한다", async () => {
+    const item = {
+      contentid: "126508",
+      contenttypeid: "12",
+      title: "경복궁",
+      mapx: "126.9769",
+      mapy: "37.5796",
+      addr1: "서울특별시 종로구 사직로 161",
+      addr2: "",
+      zipcode: "03045",
+      lDongRegnCd: "11",
+      lDongSignguCd: "110",
+      lclsSystm1: "AC",
+      lclsSystm2: "AC01",
+      lclsSystm3: "AC010100",
+      createdtime: "20030204092000",
+      modifiedtime: "20250101120000",
+      showflag: "1",
+    };
+    getMock.mockResolvedValue({
+      data: {
+        response: {
+          header: { resultCode: "0000", resultMsg: "OK" },
+          body: { items: { item: [item] }, numOfRows: 1000, pageNo: 2, totalCount: 1500 },
+        },
+      },
+    });
+    const client = new TourApiClient();
+    const page = await client.getAreaBasedSyncList({
+      pageNo: 2,
+      numOfRows: 1000,
+      contentTypeId: "12",
+      lDongRegnCd: "11",
+    });
+    expect(page.items).toEqual([item]);
+    expect(page.totalCount).toBe(1500);
+    expect(page.pageNo).toBe(2);
+    expect(page.numOfRows).toBe(1000);
+    const url = getMock.mock.calls[0][0] as string;
+    expect(url).toContain("areaBasedSyncList2?");
+    expect(url).toContain("pageNo=2");
+    expect(url).toContain("numOfRows=1000");
+    expect(url).toContain("contentTypeId=12");
+    expect(url).toContain("lDongRegnCd=11");
+    expect(url).not.toContain("lDongSignguCd=");
+  });
+
+  it("getAreaBasedSyncList가 빈 items를 빈 배열로 정규화한다", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        response: {
+          header: { resultCode: "0000", resultMsg: "OK" },
+          body: { items: "", numOfRows: 1000, pageNo: 1, totalCount: 0 },
+        },
+      },
+    });
+    const client = new TourApiClient();
+    const page = await client.getAreaBasedSyncList({ pageNo: 1, numOfRows: 1000 });
+    expect(page.items).toEqual([]);
+    expect(page.totalCount).toBe(0);
+  });
+
+  it("getDetailCommon이 v4.3에서 삭제된 파라미터를 전송하지 않는다", async () => {
+    getMock.mockResolvedValue(envelope({ item: { contentid: "1", overview: "설명" } }));
+    const client = new TourApiClient();
+    await client.getDetailCommon("1");
+    const url = getMock.mock.calls[0][0] as string;
+    expect(url).toContain("contentId=1");
+    for (const removed of [
+      "defaultYN",
+      "firstImageYN",
+      "areacodeYN",
+      "catcodeYN",
+      "addrinfoYN",
+      "mapinfoYN",
+      "overviewYN",
+    ]) {
+      expect(url).not.toContain(removed);
+    }
+  });
+
+  it("getDetailCommon이 결과 없으면 isNoData로 판별되는 오류를 던진다", async () => {
+    getMock.mockResolvedValue(envelope(""));
+    const client = new TourApiClient();
+    await expect(client.getDetailCommon("999")).rejects.toMatchObject({ resultCode: "03" });
+  });
 });
