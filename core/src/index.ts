@@ -2,6 +2,8 @@
 import { Command } from "commander";
 import { registerHello } from "./commands/hello.js";
 import { registerGenerateTourCodes } from "./commands/generateTourCodes.js";
+import { registerCollectList } from "./commands/collectList.js";
+import { registerCollectDetail } from "./commands/collectDetail.js";
 
 const program = new Command();
 
@@ -12,5 +14,7 @@ program
 
 registerHello(program);
 registerGenerateTourCodes(program);
+registerCollectList(program);
+registerCollectDetail(program);
 
 await program.parseAsync();
