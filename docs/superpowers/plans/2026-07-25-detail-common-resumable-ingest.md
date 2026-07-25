@@ -37,7 +37,7 @@ TourAPI 응답의 `resultCode`를 에러 메시지 문자열이 아니라 **타�
   - `export function isNoData(e: unknown): boolean`
   - `export function isQuotaExceeded(e: unknown): boolean`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/clients/tourApi.test.ts`의 마지막 `});` 앞에 추가:
 
@@ -96,12 +96,12 @@ import { TourApiClient, TourApiError, isNoData, isQuotaExceeded } from "../../sr
 
 > `toSatisfy`는 vitest 2.x의 표준 matcher다. 없다는 오류가 나면 `.rejects.toMatchObject({ resultCode: "22" })`로 바꾼다.
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/clients/tourApi.test.ts`
 Expected: FAIL — `TourApiError`, `isNoData`, `isQuotaExceeded`가 export되지 않아 import 에러 또는 `is not defined`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/clients/tourApi.ts`의 `normalizeItems` 함수(`:109-114`) 바로 뒤에 추가:
 
@@ -205,17 +205,17 @@ function parseEnvelope<T>(data: unknown): TourApiEnvelope<T> {
   }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/clients/tourApi.test.ts`
 Expected: PASS — 신규 5개 + 기존 테스트 전부. 기존 `rejects.toThrow("TourAPI 오류(...)")` 검증은 메시지 형식을 그대로 유지했으므로 계속 통과한다.
 
-- [ ] **Step 5: 타입체크**
+- [x] **Step 5: 타입체크**
 
 Run: `cd core && npm run typecheck`
 Expected: 오류 없음
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add core/src/clients/tourApi.ts core/tests/clients/tourApi.test.ts
@@ -244,7 +244,7 @@ data.go.kr이 XML을 반환하는 경우도 parseEnvelope에서 판별한다."
   - `TourApiClient.getAreaBasedSyncList(params: TourApiSyncListParams): Promise<TourApiPage<TourApiSyncItem>>`
   - `TourApiClient.getDetailCommon(contentId: string): Promise<TourApiDetailCommon>` (시그니처 동일, 동작 변경)
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/clients/tourApi.test.ts`에 추가:
 
@@ -337,12 +337,12 @@ data.go.kr이 XML을 반환하는 경우도 parseEnvelope에서 판별한다."
   });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/clients/tourApi.test.ts`
 Expected: FAIL — `getAreaBasedSyncList is not a function`, 그리고 삭제 파라미터 검증 실패
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/clients/tourApi.ts`의 `TourApiAreaItem` 인터페이스(`:22-41`) **뒤에** 추가:
 
@@ -452,17 +452,17 @@ export interface TourApiSyncListParams {
   }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/clients/tourApi.test.ts`
 Expected: PASS — 전부. 기존 `getDetailCommon이 결과 없으면 throw한다`(`:118-122`)는 메시지에 `999`가 남아 있어 계속 통과한다.
 
-- [ ] **Step 5: 타입체크**
+- [x] **Step 5: 타입체크**
 
 Run: `cd core && npm run typecheck`
 Expected: 오류 없음
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add core/src/clients/tourApi.ts core/tests/clients/tourApi.test.ts
@@ -488,7 +488,7 @@ syncList 응답 항목에서 DB에 저장할 필드만 뽑는 순수 함수. 네
   - `export interface TourContentRow` — 아래 Step 3 정의
   - `export function toTourContentRow(item: TourApiSyncItem): TourContentRow`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/lib/tourContent.test.ts` 생성:
 
@@ -556,12 +556,12 @@ describe("toTourContentRow", () => {
 });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/lib/tourContent.test.ts`
 Expected: FAIL — `Cannot find module '../../src/lib/tourContent.js'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/lib/tourContent.ts` 생성:
 
@@ -616,12 +616,12 @@ export function toTourContentRow(item: TourApiSyncItem): TourContentRow {
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/lib/tourContent.test.ts`
 Expected: PASS — 3개
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add core/src/lib/tourContent.ts core/tests/lib/tourContent.test.ts
@@ -647,7 +647,7 @@ git commit -m "feat(core): TourContentRow 투영 함수 추가"
 
 > **인자 타입 규칙:** 트랜잭션 안에서 실행돼야 하는 함수는 `PoolClient`를, 건당 독립 커밋이 필요한 함수(Task 5)는 `PostgresClient`를 받는다. 이 구분이 "커밋은 건당" 원칙을 타입 수준에서 강제한다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/lib/tourContentsTable.test.ts` 생성:
 
@@ -732,12 +732,12 @@ describe("upsertListedContents", () => {
 });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/lib/tourContentsTable.test.ts`
 Expected: FAIL — `Cannot find module '../../src/lib/tourContentsTable.js'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/lib/tourContentsTable.ts` 생성:
 
@@ -840,12 +840,12 @@ export async function upsertListedContents(
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/lib/tourContentsTable.test.ts`
 Expected: PASS — 4개
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add core/src/lib/tourContentsTable.ts core/tests/lib/tourContentsTable.test.ts
@@ -874,7 +874,7 @@ pending 선택과 처리 결과 반영. `markDetailFailure`가 증가와 전이�
   - `export async function markDetailFailure(pg: PostgresClient, contentid: string, error: string, maxAttempts: number): Promise<DetailStatus>`
   - `export async function countByStatus(pg: PostgresClient): Promise<Record<DetailStatus, number>>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/lib/tourContentsTable.test.ts`에 추가. 파일 상단 import에 함수들을 더한다:
 
@@ -969,12 +969,12 @@ describe("countByStatus", () => {
 });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/lib/tourContentsTable.test.ts`
 Expected: FAIL — `claimPendingContents is not a function` 등
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/lib/tourContentsTable.ts` 상단 import에 추가:
 
@@ -1072,17 +1072,17 @@ export async function countByStatus(
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/lib/tourContentsTable.test.ts`
 Expected: PASS — 10개
 
-- [ ] **Step 5: 타입체크**
+- [x] **Step 5: 타입체크**
 
 Run: `cd core && npm run typecheck`
 Expected: 오류 없음
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add core/src/lib/tourContentsTable.ts core/tests/lib/tourContentsTable.test.ts
@@ -1109,7 +1109,7 @@ markDetailFailure는 증가와 전이를 단일 UPDATE로 처리하고 RETURNING
   - `export interface CollectListResult { fetched: number; apiCalls: number }`
   - `export async function collectList(tourApi: TourApiClient, pg: PostgresClient, opts?: CollectListOptions): Promise<CollectListResult>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/services/collectList.test.ts` 생성:
 
@@ -1232,12 +1232,12 @@ describe("collectList", () => {
 });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/services/collectList.test.ts`
 Expected: FAIL — `Cannot find module '../../src/services/collectList.js'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/services/collectList.ts` 생성:
 
@@ -1306,12 +1306,12 @@ export async function collectList(
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/services/collectList.test.ts`
 Expected: PASS — 5개
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add core/src/services/collectList.ts core/tests/services/collectList.test.ts
@@ -1347,7 +1347,7 @@ git commit -m "feat(core): collectList 서비스 추가 (syncList 페이지 순�
   - `export interface CollectDetailResult { processed: number; done: number; nodata: number; retryScheduled: number; failed: number; stoppedBy: "budget" | "quota-exceeded" | "no-pending"; remainingPending: number }`
   - `export async function collectDetail(tourApi: TourApiClient, pg: PostgresClient, opts?: CollectDetailOptions): Promise<CollectDetailResult>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `core/tests/services/collectDetail.test.ts` 생성:
 
@@ -1507,12 +1507,12 @@ describe("collectDetail", () => {
 });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/services/collectDetail.test.ts`
 Expected: FAIL — `Cannot find module '../../src/services/collectDetail.js'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/services/collectDetail.ts` 생성:
 
@@ -1625,17 +1625,17 @@ export async function collectDetail(
 }
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/services/collectDetail.test.ts`
 Expected: PASS — 11개
 
-- [ ] **Step 5: 타입체크**
+- [x] **Step 5: 타입체크**
 
 Run: `cd core && npm run typecheck`
 Expected: 오류 없음
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add core/src/services/collectDetail.ts core/tests/services/collectDetail.test.ts
@@ -1665,7 +1665,7 @@ git commit -m "feat(core): collectDetail 서비스 추가 (쿼터 예산 + 에�
   - `export function registerCollectDetail(program: Command): void`
   - `export function formatCollectDetailSummary(result: CollectDetailResult): string`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 출력 요약은 `stoppedBy`에 따라 안내가 갈리므로 순수 함수로 분리해 테스트한다.
 
@@ -1730,12 +1730,12 @@ describe("formatCollectDetailSummary", () => {
 });
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `cd core && npx vitest run tests/commands/collectDetail.test.ts`
 Expected: FAIL — `Cannot find module '../../src/commands/collectDetail.js'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `core/src/commands/collectList.ts` 생성:
 
@@ -1873,17 +1873,17 @@ registerCollectDetail(program);
 await program.parseAsync();
 ```
 
-- [ ] **Step 4: 테스트 통과 확인**
+- [x] **Step 4: 테스트 통과 확인**
 
 Run: `cd core && npx vitest run tests/commands/collectDetail.test.ts`
 Expected: PASS — 5개
 
-- [ ] **Step 5: 전체 검증**
+- [x] **Step 5: 전체 검증**
 
 Run: `cd core && npm run typecheck && npm test && npm run build`
 Expected: 타입 오류 없음, 전체 테스트 통과, 빌드 성공
 
-- [ ] **Step 6: CLI 등록 확인 (API 호출 없음)**
+- [x] **Step 6: CLI 등록 확인 (API 호출 없음)**
 
 Run: `cd core && npx tsx src/index.ts --help`
 Expected: 출력에 `collect-list`와 `collect-detail`이 보인다
@@ -1893,7 +1893,7 @@ Expected: `--daily-limit`, `--max-attempts` 옵션이 보인다
 
 > 이 두 명령은 `--help`만 실행하므로 `.env`나 DB 연결이 필요 없다.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add core/src/commands/collectList.ts core/src/commands/collectDetail.ts \
@@ -1907,6 +1907,11 @@ git commit -m "feat(core): tb collect-list / collect-detail 커맨드 추가"
 
 **⚠️ 이 태스크만 실제 TourAPI 쿼터를 소비한다 (약 12~15건).** 앞의 모든 태스크가 통과한 뒤에만 실행한다.
 
+> **⛔ 2026-07-25 현재 네트워크 차단으로 미실행.** `DATABASE_URL`의 호스트가 사내망(`10.173.71.108:5432`)인데
+> 실행 환경은 외부망(`192.168.219.0/24`)이라 ping·TCP 5432 모두 무응답이다. TourAPI(`apis.data.go.kr:443`)는 도달 가능하므로
+> 남은 조건은 DB 접근뿐이다. **사내망 또는 VPN에서 Step 3부터 그대로 재개하면 된다.**
+> 코드·테스트는 전부 통과 상태이므로 이 태스크 외에 남은 작업은 없다.
+
 **Files:**
 - 코드 변경 없음. 검증만 수행.
 
@@ -1914,12 +1919,14 @@ git commit -m "feat(core): tb collect-list / collect-detail 커맨드 추가"
 - Consumes: Task 8의 CLI 커맨드 전체
 - Produces: 없음
 
-- [ ] **Step 1: 사전 조건 확인**
+- [x] **Step 1: 사전 조건 확인**
 
 Run: `cd core && grep -c "TOUR_API_SERVICE_KEY\|DATABASE_URL" .env`
 Expected: `2` — 둘 다 설정돼 있어야 한다. 아니면 여기서 멈추고 사용자에게 알린다.
 
-- [ ] **Step 2: 코드표 적재 여부 확인**
+> 확인 완료 — `2`. 다만 `DATABASE_URL`의 호스트가 현재 망에서 도달 불가(위 ⛔ 참고).
+
+- [x] **Step 2: 코드표 적재 여부 확인**
 
 `generate-tour-codes`를 아직 실행하지 않았다면 이번 스코프에서는 실행하지 않아도 된다 — `collect-list`/`collect-detail`은 코드표를 참조하지 않는다. 이 단계는 건너뛴다.
 
@@ -1959,8 +1966,8 @@ Expected: 두 번째 명령이 `모든 항목 처리 완료.`로 끝난다 — �
 
 ## 완료 기준
 
-- [ ] `cd core && npm run typecheck` 통과
-- [ ] `cd core && npm test` 전체 통과
-- [ ] `cd core && npm run build` 성공
+- [x] `cd core && npm run typecheck` 통과
+- [x] `cd core && npm test` 전체 통과
+- [x] `cd core && npm run build` 성공
 - [ ] Task 9 Step 5에서 2차 실행이 1차 처리분을 건너뛰는 것을 확인
 - [ ] Task 9 Step 7에서 목록 재적재가 `done`을 되돌리지 않는 것을 확인
