@@ -262,7 +262,7 @@ interface CollectDetailResult {
   nodata: number;
   retryScheduled: number;   // 실패했으나 pending 유지 (재시도 예정)
   failed: number;           // maxAttempts 도달로 제외됨
-  stoppedBy: "budget" | "quota-exceeded" | "no-pending";
+  stoppedBy: "budget" | "quota-exceeded" | "aborted" | "no-pending";
   remainingPending: number;
 }
 
@@ -275,7 +275,7 @@ async function collectDetail(
 1. `createTourContentsTable` (멱등) → `countByStatus`로 시작 현황 로깅.
 2. `claimPendingContents(pg, dailyLimit)`로 처리 대상 확보.
 3. 각 `contentid`에 대해 순차로 `getDetailCommon` 호출 → 결과에 따라 아래 표대로 반영 → **건당 즉시 커밋**.
-4. 예산 소진 / 한도초과 / pending 소진 중 하나로 종료. `stoppedBy`에 사유를 담아 반환.
+4. 예산 소진 / 한도초과 / 연속 실패 차단 / pending 소진 중 하나로 종료. `stoppedBy`에 사유를 담아 반환.
 5. 종료 현황을 `logger`로 출력.
 
 ## 쿼터·에러 처리
@@ -284,10 +284,11 @@ async function collectDetail(
 
 | 상황 | `detail_status` | `attempt_count` | 루프 |
 |------|-----------------|-----------------|------|
-| 정상 | `done` (+ `overview`, `detail_fetched_at`) | — | 계속 |
-| `NODATA(03)` | `nodata` (`overview=''`) | 안 올림 | 계속 |
-| **한도 초과** | **`pending` 유지 (변경 없음)** | **안 올림** | **즉시 중단** |
-| 네트워크/5xx/파싱 오류 | `pending` 유지, `last_error` 기록<br>단 `attempt_count+1 >= maxAttempts`면 `failed` | +1 | 계속 |
+| 정상 | `done` (+ `overview`, `detail_fetched_at`) | — | 계속 (연속 실패 카운터 리셋) |
+| `NODATA(03)` | `nodata` (`overview=''`) | 안 올림 | 계속 (연속 실패 카운터 리셋) |
+| **한도 초과** | **`pending` 유지 (변경 없음)** | **안 올림** | **즉시 중단** (`quota-exceeded`) |
+| 네트워크/5xx/파싱 오류 | `pending` 유지, `last_error` 기록<br>단 `attempt_count+1 >= maxAttempts`면 `failed` | +1 | 계속, 단 **연속 10회면 중단**(`aborted`) |
+| `markDetailDone` 등 DB 쓰기 실패 | 변경 없음 | 안 올림 | 예외를 전파해 실행 중단 |
 
 ### 함정 1 — 쿼터로 끊긴 항목을 실패로 세지 않는다
 
@@ -302,6 +303,20 @@ async function collectDetail(
 ### 함정 3 — 목록 재적재가 완료분을 되돌린다
 
 `collect-list`를 필터를 바꿔 재실행할 때 upsert가 상태 컬럼까지 갱신하면 그동안 채운 `overview`가 리셋되고, 소비한 쿼터가 통째로 무효화된다. 컴포넌트 3의 upsert 정의대로 목록 필드만 갱신한다.
+
+### 함정 4 — 시스템 장애가 개별 항목 오류로 위장한다
+
+함정 1은 "한도 초과"라는 문 하나만 잠근다. 그런데 **서비스 키 만료(resultCode 30), 상위 API 5xx, 네트워크 단절**은 `isQuotaExceeded`도 `isNoData`도 아니라서 일반 오류 분기로 들어온다. 그러면 claim한 900건 전부에 `markDetailFailure`가 호출되고, 사흘이면 멀쩡한 콘텐츠 2,700건이 `failed`로 영구 제외된다 — 함정 1이 막으려던 바로 그 재앙이 다른 문으로 들어오는 것이다.
+
+**연속 실패 차단기**로 막는다. 성공이나 NODATA는 카운터를 리셋하고, 연속 non-NODATA 실패가 10회에 이르면 `stoppedBy: "aborted"`로 중단한다. 손상이 900행이 아니라 10행으로 줄어든다.
+
+남는 한계: 장애가 며칠 이어지면 `claimPendingContents`가 `ORDER BY contentid`로 매번 같은 앞쪽 10건을 집으므로, 사흘이면 그 10건은 여전히 `failed`가 된다. 900건 대신 10건이라 실용적으로 수용 가능하지만 0은 아니다. 완전히 없애려면 aborted로 끝난 실행에서 올린 `attempt_count`를 되돌려야 하는데, 별도 스코프다.
+
+### 함정 5 — DB 쓰기 실패를 데이터 문제로 오분류한다
+
+`try`가 API 호출과 DB 쓰기를 함께 감싸면, `getDetailCommon`은 성공했는데 `markDetailDone`이 실패한 경우가 일반 오류 분기로 흘러가 멀쩡한 콘텐츠의 `attempt_count`를 올린다. 소비한 호출도 버려진다.
+
+`try`는 **API 호출만** 감싼다. DB 쓰기 실패는 분류하지 않고 그대로 전파해 실행을 중단시킨다 — 해당 행은 `pending`으로 남아 다음 실행이 재시도한다.
 
 ### 쿼터 카운팅
 
@@ -332,7 +347,10 @@ tb collect-detail [--daily-limit <n>] [--max-attempts <n>]
 `stoppedBy`에 따라 마지막 줄을 달리 안내한다:
 - `budget` — "예산 소진. 내일 다시 실행하세요."
 - `quota-exceeded` — "API 일일 한도에 도달했습니다. 다른 작업이 한도를 사용했는지 확인하세요."
+- `aborted` — "연속 실패로 중단했습니다. 서비스 키 만료 여부와 네트워크를 확인한 뒤 다시 실행하세요."
 - `no-pending` — "모든 항목 처리 완료."
+
+`budget`은 claim한 건수가 `dailyLimit`과 같을 때만 나온다. 예산을 다 쓰지 않고 끝났다면 남은 pending이 없다는 뜻이므로 `no-pending`으로 정정한다.
 
 ## 파일 구조
 
@@ -393,7 +411,11 @@ areaBasedSyncList2 (page 순회)
   - `claimPendingContents`가 `detail_status='pending'`과 `LIMIT`을 사용
 - **collectList** (client+pg mock): 페이지 순회 종료 조건(`totalCount` 도달, 빈 페이지), 필터 파라미터 전달, `maxPages` 준수
 - **collectDetail** (client+pg mock)
-  - `dailyLimit`만큼만 호출하고 `stoppedBy: "budget"` 반환
+  - `dailyLimit`만큼 claim해 전부 처리하면 `stoppedBy: "budget"` 반환
+  - claim 건수가 `dailyLimit`보다 적으면 `stoppedBy: "no-pending"`
+  - **연속 10회 실패 시 남은 항목을 건드리지 않고 중단, `stoppedBy: "aborted"`**
+  - 성공과 NODATA가 각각 연속 실패 카운터를 리셋
+  - `markDetailDone` 실패는 `markDetailFailure`를 호출하지 않고 예외를 전파
   - NODATA → `markDetailNodata`, `attempt_count` 미증가
   - **한도초과 → 즉시 중단, 해당 항목에 `markDetailFailure` 미호출, `stoppedBy: "quota-exceeded"`**
   - 일반 오류 → `markDetailFailure` 호출 후 다음 항목 계속
