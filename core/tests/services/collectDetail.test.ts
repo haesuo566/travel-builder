@@ -66,14 +66,23 @@ describe("collectDetail", () => {
     expect(result).toMatchObject({ processed: 2, done: 2, stoppedBy: "no-pending" });
   });
 
+  it("예산을 전부 소진하면 budget으로 끝낸다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["1", "2"]);
+    const getDetailCommon = vi.fn(async (id: string) => ({ contentid: id, overview: "x" }));
+    const result = await collectDetail(fakeApi(getDetailCommon), fakePg(), { dailyLimit: 2 });
+    expect(result.stoppedBy).toBe("budget");
+  });
+
   it("dailyLimit을 claimPendingContents에 그대로 전달한다", async () => {
-    await collectDetail(fakeApi(vi.fn()), fakePg(), { dailyLimit: 42 });
-    expect(mocked.claimPendingContents).toHaveBeenCalledWith(expect.anything(), 42);
+    const pg = fakePg();
+    await collectDetail(fakeApi(vi.fn()), pg, { dailyLimit: 42 });
+    expect(mocked.claimPendingContents).toHaveBeenCalledWith(pg, 42);
   });
 
   it("기본 dailyLimit은 900이다", async () => {
-    await collectDetail(fakeApi(vi.fn()), fakePg());
-    expect(mocked.claimPendingContents).toHaveBeenCalledWith(expect.anything(), 900);
+    const pg = fakePg();
+    await collectDetail(fakeApi(vi.fn()), pg);
+    expect(mocked.claimPendingContents).toHaveBeenCalledWith(pg, 900);
   });
 
   it("NODATA는 nodata로 종결하고 실패 횟수를 올리지 않는다", async () => {
@@ -177,7 +186,15 @@ describe("collectDetail", () => {
     const result = await collectDetail(fakeApi(getDetailCommon), fakePg());
     expect(getDetailCommon).toHaveBeenCalledTimes(10);
     expect(mocked.markDetailFailure).toHaveBeenCalledTimes(10);
-    expect(result).toMatchObject({ processed: 10, stoppedBy: "aborted" });
+    expect(result).toMatchObject({
+      processed: 10,
+      done: 0,
+      nodata: 0,
+      retryScheduled: 10,
+      failed: 0,
+      stoppedBy: "aborted",
+    });
+    expect(vi.mocked(logger.error)).toHaveBeenCalledWith(expect.stringContaining("연속"));
   });
 
   it("성공하면 연속 실패 카운터가 초기화된다", async () => {
