@@ -231,10 +231,7 @@ export class TourApiClient {
     path: string,
     params: Record<string, string | number | undefined>,
   ): Promise<T[]> {
-    const url = this.buildUrl(path, params);
-    const { data } = await axios.get<unknown>(url);
-    const envelope = parseEnvelope<T>(data);
-    return normalizeItems(envelope.response.body.items);
+    return (await this.requestPage<T>(path, params)).items;
   }
 
   private async requestPage<T>(
@@ -266,13 +263,9 @@ export class TourApiClient {
           `TourAPI: ${path} 페이지네이션이 ${MAX_PAGES}페이지를 초과했습니다.`,
         );
       }
-      const { data } = await axios.get<unknown>(
-        this.buildUrl(path, { ...params, numOfRows, pageNo }),
-      );
-      const envelope = parseEnvelope<T>(data);
-      const items = normalizeItems(envelope.response.body.items);
-      results.push(...items);
-      if (items.length === 0 || results.length >= envelope.response.body.totalCount) {
+      const page = await this.requestPage<T>(path, { ...params, numOfRows, pageNo });
+      results.push(...page.items);
+      if (page.items.length === 0 || results.length >= page.totalCount) {
         break;
       }
       pageNo += 1;
