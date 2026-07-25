@@ -45,7 +45,7 @@ describe("toTourContentRow", () => {
   });
 
   it("투영 대상이 아닌 필드는 결과에 남지 않는다", () => {
-    const row = toTourContentRow(syncItem()) as Record<string, unknown>;
+    const row = toTourContentRow(syncItem()) as unknown as Record<string, unknown>;
     expect(row.createdtime).toBeUndefined();
     expect(row.showflag).toBeUndefined();
   });
