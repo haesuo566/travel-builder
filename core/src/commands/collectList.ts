@@ -3,6 +3,7 @@ import { TourApiClient } from "../clients/tourApi.js";
 import { PostgresClient } from "../clients/postgres.js";
 import { collectList } from "../services/collectList.js";
 import { logger } from "../lib/logger.js";
+import { parsePositiveInt } from "../lib/cliOptions.js";
 
 interface CollectListCliOptions {
   contentType?: string;
@@ -23,6 +24,9 @@ export function registerCollectList(program: Command): void {
     .option("--page-size <n>", "페이지당 건수", "1000")
     .option("--max-pages <n>", "최대 페이지 수", "100")
     .action(async (options: CollectListCliOptions) => {
+      const pageSize = parsePositiveInt("--page-size", options.pageSize, 1000);
+      const maxPages = parsePositiveInt("--max-pages", options.maxPages, 100);
+
       const tourApi = new TourApiClient();
       const pg = new PostgresClient();
       await pg.connect();
@@ -31,8 +35,8 @@ export function registerCollectList(program: Command): void {
           contentTypeId: options.contentType,
           lDongRegnCd: options.ldongRegn,
           lDongSignguCd: options.ldongSigngu,
-          pageSize: Number(options.pageSize ?? 1000),
-          maxPages: Number(options.maxPages ?? 100),
+          pageSize,
+          maxPages,
         });
         logger.info(
           `목록 적재 완료 — ${result.fetched}건, API 호출 ${result.apiCalls}회`,

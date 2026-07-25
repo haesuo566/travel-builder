@@ -4,6 +4,7 @@ import { PostgresClient } from "../clients/postgres.js";
 import { collectDetail } from "../services/collectDetail.js";
 import type { CollectDetailResult } from "../services/collectDetail.js";
 import { logger } from "../lib/logger.js";
+import { parsePositiveInt } from "../lib/cliOptions.js";
 
 interface CollectDetailCliOptions {
   dailyLimit?: string;
@@ -41,13 +42,16 @@ export function registerCollectDetail(program: Command): void {
     .option("--daily-limit <n>", "이번 실행에서 소비할 최대 API 호출 수", "900")
     .option("--max-attempts <n>", "이 횟수만큼 실패하면 제외", "3")
     .action(async (options: CollectDetailCliOptions) => {
+      const dailyLimit = parsePositiveInt("--daily-limit", options.dailyLimit, 900);
+      const maxAttempts = parsePositiveInt("--max-attempts", options.maxAttempts, 3);
+
       const tourApi = new TourApiClient();
       const pg = new PostgresClient();
       await pg.connect();
       try {
         const result = await collectDetail(tourApi, pg, {
-          dailyLimit: Number(options.dailyLimit ?? 900),
-          maxAttempts: Number(options.maxAttempts ?? 3),
+          dailyLimit,
+          maxAttempts,
         });
         logger.info(formatCollectDetailSummary(result));
       } finally {
