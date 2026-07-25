@@ -190,7 +190,7 @@ export async function markDetailDone(pg: PostgresClient, contentid: string, over
 export async function markDetailNodata(pg: PostgresClient, contentid: string): Promise<void>
 export async function markDetailFailure(
   pg: PostgresClient, contentid: string, error: string, maxAttempts: number,
-): Promise<void>
+): Promise<DetailStatus>   // 전이 결과: 'pending'(재시도 대기) | 'failed'(제외됨)
 export async function countByStatus(pg: PostgresClient): Promise<Record<DetailStatus, number>>
 ```
 
@@ -215,7 +215,10 @@ UPDATE tour_contents SET
   last_error    = $2,
   detail_status = CASE WHEN attempt_count + 1 >= $3 THEN 'failed' ELSE 'pending' END
 WHERE contentid = $1
+RETURNING detail_status
 ```
+
+`RETURNING`으로 전이 결과를 돌려줘야 호출자가 "재시도 대기"(`retryScheduled`)와 "영구 제외"(`failed`)를 구분해 집계할 수 있다.
 
 `claimPendingContents`는 `SELECT contentid FROM tour_contents WHERE detail_status = 'pending' ORDER BY contentid LIMIT $1`. 단일 프로세스 수동 실행이므로 `FOR UPDATE SKIP LOCKED`는 쓰지 않는다.
 
