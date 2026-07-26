@@ -165,6 +165,7 @@ describe("markEmbedFailure", () => {
   it("단일 UPDATE로 시도횟수를 올리고 CASE로 전이한다", async () => {
     const { pg, queryMock } = fakePg([{ embed_status: "pending" }]);
     expect(await markEmbedFailure(pg, "1", "ECONNREFUSED", 3)).toBe("pending");
+    expect(queryMock).toHaveBeenCalledTimes(1);
     const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("embed_attempt_count = embed_attempt_count + 1");
     expect(sql).toContain(
@@ -172,6 +173,11 @@ describe("markEmbedFailure", () => {
     );
     expect(sql).toContain("RETURNING embed_status");
     expect(params).toEqual(["1", "ECONNREFUSED", 3]);
+  });
+
+  it("maxAttempts에 도달하면 failed를 반환한다", async () => {
+    const { pg } = fakePg([{ embed_status: "failed" }]);
+    expect(await markEmbedFailure(pg, "1", "err", 3)).toBe("failed");
   });
 
   it("대상 행이 없으면 pending으로 간주한다", async () => {
@@ -199,6 +205,7 @@ describe("claimEmbedPending", () => {
     const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("structure_status = 'done'");
     expect(sql).toContain("embed_status = 'pending'");
+    expect(sql).toContain("LIMIT $1");
     expect(params).toEqual([50]);
   });
 });

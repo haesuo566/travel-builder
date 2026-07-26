@@ -30,8 +30,11 @@ export async function enrichBacklog(
   // 없으면 ALTER로 추가한 컬럼이 없는 상태에서 claim 쿼리가 실패한다.
   await pg.transaction((client) => createTourContentsTable(client));
 
-  const structurePending = await claimStructurePending(pg, limit);
-  const embedPending = await claimEmbedPending(pg, limit);
+  // 두 claim은 서로 독립된 읽기라 병렬로 보낸다.
+  const [structurePending, embedPending] = await Promise.all([
+    claimStructurePending(pg, limit),
+    claimEmbedPending(pg, limit),
+  ]);
 
   // 두 목록은 structure_status가 배타적이라 겹치지 않아야 정상이지만,
   // 겹쳐 들어오면 같은 항목을 두 번 처리해 Gemini 쿼터를 낭비한다.

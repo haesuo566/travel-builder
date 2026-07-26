@@ -70,6 +70,13 @@ describe("enrichBacklog", () => {
     await enrichBacklog(pg, enricher, 100);
     expect(mockedTable.createTourContentsTable).toHaveBeenCalledOnce();
     expect(vi.mocked(pg.transaction)).toHaveBeenCalledOnce();
+    // 두 claim은 서로 독립이라 병렬로 나가지만, 둘 다 DDL 이후여야 한다 —
+    // DDL 전에 나가면 ALTER로 추가한 컬럼이 없는 상태에서 claim이 실패한다.
+    const ddlOrder = mockedTable.createTourContentsTable.mock.invocationCallOrder[0];
+    const structureOrder = mockedStage.claimStructurePending.mock.invocationCallOrder[0];
+    const embedOrder = mockedStage.claimEmbedPending.mock.invocationCallOrder[0];
+    expect(ddlOrder).toBeLessThan(structureOrder);
+    expect(ddlOrder).toBeLessThan(embedOrder);
   });
 
   it("두 대기 목록을 합쳐 중복 없이 순회한다", async () => {
