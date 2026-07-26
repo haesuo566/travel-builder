@@ -14,8 +14,8 @@ import { createEnricher } from "../../src/services/enricher.js";
 import type { Enricher, EnrichStats } from "../../src/services/enricher.js";
 import { enrichBacklog } from "../../src/services/enrichBacklog.js";
 import { ensureCollection } from "../../src/lib/qdrantCollection.js";
-import { countStageStatus } from "../../src/lib/tourContentsTable.js";
-import type { StageCounts } from "../../src/lib/tourContentsTable.js";
+import { countStageStatus } from "../../src/lib/enrichStage.js";
+import type { StageCounts } from "../../src/lib/enrichStage.js";
 
 // --- Important 2: 조합 루트(runCollectDetail) 배선 검증용 모킹 ---
 // 인스턴스가 아니라 클라이언트 클래스를 직접 참조하므로, 클래스 모듈 자체를 vi.mock해
@@ -57,7 +57,7 @@ vi.mock("../../src/services/collectDetail.js", () => ({ collectDetail: vi.fn() }
 vi.mock("../../src/services/enricher.js", () => ({ createEnricher: vi.fn() }));
 vi.mock("../../src/services/enrichBacklog.js", () => ({ enrichBacklog: vi.fn() }));
 vi.mock("../../src/lib/qdrantCollection.js", () => ({ ensureCollection: vi.fn() }));
-vi.mock("../../src/lib/tourContentsTable.js", () => ({ countStageStatus: vi.fn() }));
+vi.mock("../../src/lib/enrichStage.js", () => ({ countStageStatus: vi.fn() }));
 vi.mock("../../src/lib/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

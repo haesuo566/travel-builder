@@ -1,6 +1,6 @@
 import type { QdrantDistance, QdrantStore } from "../clients/qdrant.js";
 import type { TeiEmbeddingClient } from "../clients/tei.js";
-import type { EnrichInput } from "./tourContentsTable.js";
+import type { EnrichInput } from "./enrichStage.js";
 
 export interface CollectionInfo {
   name: string;

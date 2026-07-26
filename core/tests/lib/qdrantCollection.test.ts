@@ -6,7 +6,7 @@ import {
 } from "../../src/lib/qdrantCollection.js";
 import type { QdrantDistance, QdrantStore } from "../../src/clients/qdrant.js";
 import type { TeiEmbeddingClient } from "../../src/clients/tei.js";
-import type { EnrichInput } from "../../src/lib/tourContentsTable.js";
+import type { EnrichInput } from "../../src/lib/enrichStage.js";
 
 function fakeQdrant(existing: { vectorSize: number; distance?: QdrantDistance } | null) {
   const info =

@@ -1,10 +1,7 @@
 import type { PostgresClient } from "../clients/postgres.js";
 import type { Enricher, EnrichStats } from "./enricher.js";
-import {
-  claimEmbedPending,
-  claimStructurePending,
-  createTourContentsTable,
-} from "../lib/tourContentsTable.js";
+import { createTourContentsTable } from "../lib/tourContentsTable.js";
+import { claimEmbedPending, claimStructurePending } from "../lib/enrichStage.js";
 import { logger } from "../lib/logger.js";
 
 export interface EnrichBacklogResult {

@@ -3,6 +3,7 @@ import { enrichBacklog } from "../../src/services/enrichBacklog.js";
 import type { Enricher, EnrichStats } from "../../src/services/enricher.js";
 import type { PostgresClient } from "../../src/clients/postgres.js";
 import * as table from "../../src/lib/tourContentsTable.js";
+import * as stage from "../../src/lib/enrichStage.js";
 
 vi.mock("../../src/lib/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -13,12 +14,20 @@ vi.mock("../../src/lib/tourContentsTable.js", async (importOriginal) => {
   return {
     ...actual,
     createTourContentsTable: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock("../../src/lib/enrichStage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof stage>();
+  return {
+    ...actual,
     claimStructurePending: vi.fn().mockResolvedValue([]),
     claimEmbedPending: vi.fn().mockResolvedValue([]),
   };
 });
 
-const mocked = vi.mocked(table);
+const mockedTable = vi.mocked(table);
+const mockedStage = vi.mocked(stage);
 
 const EMPTY_STATS: EnrichStats = {
   structured: 0,
@@ -47,9 +56,9 @@ function fakeEnricher() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocked.createTourContentsTable.mockResolvedValue(undefined);
-  mocked.claimStructurePending.mockResolvedValue([]);
-  mocked.claimEmbedPending.mockResolvedValue([]);
+  mockedTable.createTourContentsTable.mockResolvedValue(undefined);
+  mockedStage.claimStructurePending.mockResolvedValue([]);
+  mockedStage.claimEmbedPending.mockResolvedValue([]);
 });
 
 describe("enrichBacklog", () => {
@@ -59,13 +68,13 @@ describe("enrichBacklog", () => {
     const pg = fakePg();
     const { enricher } = fakeEnricher();
     await enrichBacklog(pg, enricher, 100);
-    expect(mocked.createTourContentsTable).toHaveBeenCalledOnce();
+    expect(mockedTable.createTourContentsTable).toHaveBeenCalledOnce();
     expect(vi.mocked(pg.transaction)).toHaveBeenCalledOnce();
   });
 
   it("두 대기 목록을 합쳐 중복 없이 순회한다", async () => {
-    mocked.claimStructurePending.mockResolvedValue(["1", "2"]);
-    mocked.claimEmbedPending.mockResolvedValue(["2", "3"]);
+    mockedStage.claimStructurePending.mockResolvedValue(["1", "2"]);
+    mockedStage.claimEmbedPending.mockResolvedValue(["2", "3"]);
     const { enricher, enrich } = fakeEnricher();
     const result = await enrichBacklog(fakePg(), enricher, 100);
     expect(enrich.mock.calls.map((c) => c[0])).toEqual(["1", "2", "3"]);
@@ -73,8 +82,8 @@ describe("enrichBacklog", () => {
   });
 
   it("limit을 넘지 않는다", async () => {
-    mocked.claimStructurePending.mockResolvedValue(["1", "2"]);
-    mocked.claimEmbedPending.mockResolvedValue(["3", "4"]);
+    mockedStage.claimStructurePending.mockResolvedValue(["1", "2"]);
+    mockedStage.claimEmbedPending.mockResolvedValue(["3", "4"]);
     const { enricher, enrich } = fakeEnricher();
     const result = await enrichBacklog(fakePg(), enricher, 3);
     expect(enrich).toHaveBeenCalledTimes(3);
@@ -85,8 +94,8 @@ describe("enrichBacklog", () => {
     const pg = fakePg();
     const { enricher } = fakeEnricher();
     await enrichBacklog(pg, enricher, 42);
-    expect(mocked.claimStructurePending).toHaveBeenCalledWith(pg, 42);
-    expect(mocked.claimEmbedPending).toHaveBeenCalledWith(pg, 42);
+    expect(mockedStage.claimStructurePending).toHaveBeenCalledWith(pg, 42);
+    expect(mockedStage.claimEmbedPending).toHaveBeenCalledWith(pg, 42);
   });
 
   it("대상이 없으면 enrich를 호출하지 않는다", async () => {
@@ -100,7 +109,7 @@ describe("enrichBacklog", () => {
   it("차단기가 트립되면 이후 항목은 enrich를 부르지 않고 skipped로 센다 (Minor 8)", async () => {
     // stats.disabled만 보면 "claim한 게 애초에 적었음"과 "10건 실패로 중단하고
     // 나머지를 스킵했음"을 processed 하나로 구분할 수 없다.
-    mocked.claimStructurePending.mockResolvedValue(["1", "2", "3"]);
+    mockedStage.claimStructurePending.mockResolvedValue(["1", "2", "3"]);
     let disabled = false;
     const enrich = vi.fn().mockImplementation(async () => {
       disabled = true; // 첫 호출에서 바로 차단기가 트립됐다고 가정한다.
@@ -113,7 +122,7 @@ describe("enrichBacklog", () => {
   });
 
   it("enricher의 최종 stats를 반환한다", async () => {
-    mocked.claimStructurePending.mockResolvedValue(["1"]);
+    mockedStage.claimStructurePending.mockResolvedValue(["1"]);
     const enrich = vi.fn().mockResolvedValue(undefined);
     const stats: EnrichStats = { ...EMPTY_STATS, structured: 1, embedded: 1 };
     const enricher = { enrich, stats: () => stats } as Enricher;
@@ -122,7 +131,7 @@ describe("enrichBacklog", () => {
   });
 
   it("enrich가 throw하면 전파한다", async () => {
-    mocked.claimStructurePending.mockResolvedValue(["1", "2"]);
+    mockedStage.claimStructurePending.mockResolvedValue(["1", "2"]);
     const enrich = vi.fn().mockRejectedValue(new Error("DB 쓰기 실패"));
     const enricher = { enrich, stats: () => EMPTY_STATS } as Enricher;
     await expect(enrichBacklog(fakePg(), enricher, 100)).rejects.toThrow("DB 쓰기 실패");

@@ -3,7 +3,7 @@ import type { TeiEmbeddingClient } from "../clients/tei.js";
 import type { QdrantStore } from "../clients/qdrant.js";
 import type { PostgresClient } from "../clients/postgres.js";
 import type { CollectionInfo } from "../lib/qdrantCollection.js";
-import type { EnrichInput } from "../lib/tourContentsTable.js";
+import type { EnrichInput } from "../lib/enrichStage.js";
 import { toPayload, toPointId } from "../lib/qdrantCollection.js";
 import {
   fetchEnrichInput,
@@ -11,7 +11,7 @@ import {
   markEmbedFailure,
   markStructureDone,
   markStructureFailure,
-} from "../lib/tourContentsTable.js";
+} from "../lib/enrichStage.js";
 import {
   STRUCTURE_SYSTEM_INSTRUCTION,
   buildMinimalText,

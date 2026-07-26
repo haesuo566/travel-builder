@@ -4,16 +4,16 @@ import type { GeminiClient } from "../../src/clients/gemini.js";
 import type { TeiEmbeddingClient } from "../../src/clients/tei.js";
 import type { QdrantStore } from "../../src/clients/qdrant.js";
 import type { PostgresClient } from "../../src/clients/postgres.js";
-import type { EnrichInput } from "../../src/lib/tourContentsTable.js";
-import * as table from "../../src/lib/tourContentsTable.js";
+import type { EnrichInput } from "../../src/lib/enrichStage.js";
+import * as stage from "../../src/lib/enrichStage.js";
 import { logger } from "../../src/lib/logger.js";
 
 vi.mock("../../src/lib/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("../../src/lib/tourContentsTable.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof table>();
+vi.mock("../../src/lib/enrichStage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof stage>();
   return {
     ...actual,
     fetchEnrichInput: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock("../../src/lib/tourContentsTable.js", async (importOriginal) => {
   };
 });
 
-const mocked = vi.mocked(table);
+const mocked = vi.mocked(stage);
 
 /** 테스트 컬렉션은 4차원 — embed mock의 벡터 길이와 맞춘다. */
 const COLLECTION = { name: "tour_contents", vectorSize: 4, distance: "Cosine" as const };

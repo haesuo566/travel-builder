@@ -6,7 +6,7 @@ import {
   needsFallback,
   validateStructuredText,
 } from "../../src/lib/structuredText.js";
-import type { EnrichInput } from "../../src/lib/tourContentsTable.js";
+import type { EnrichInput } from "../../src/lib/enrichStage.js";
 
 function input(overrides: Partial<EnrichInput> = {}): EnrichInput {
   return {

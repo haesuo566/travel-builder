@@ -1,4 +1,4 @@
-import type { EnrichInput } from "./tourContentsTable.js";
+import type { EnrichInput } from "./enrichStage.js";
 
 /** 제목 줄의 구분자. 검증에서 첫 줄 판정에 쓴다. */
 const TITLE_SEPARATOR = "—";
