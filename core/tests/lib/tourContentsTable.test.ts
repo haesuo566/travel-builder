@@ -8,6 +8,7 @@ import {
   markDetailNodata,
   markDetailFailure,
   countByStatus,
+  fetchEnrichInput,
 } from "../../src/lib/tourContentsTable.js";
 import type { PostgresClient } from "../../src/clients/postgres.js";
 import type { TourContentRow } from "../../src/lib/tourContent.js";
@@ -206,5 +207,89 @@ describe("countByStatus", () => {
   it("집계에 없는 상태는 0으로 채운다", async () => {
     const { pg } = fakePg([{ detail_status: "failed", count: "3" }]);
     expect(await countByStatus(pg)).toEqual({ pending: 0, done: 0, nodata: 0, failed: 3 });
+  });
+});
+
+function enrichRow(overrides: Record<string, unknown> = {}) {
+  return {
+    contentid: "126508",
+    title: "경복궁",
+    addr1: "서울특별시 종로구 사직로 161",
+    addr2: "",
+    overview: "조선 왕조의 법궁이다.",
+    structured_text: null,
+    contenttypeid: "12",
+    ldong_regn_cd: "11",
+    ldong_signgu_cd: "110",
+    lcls_systm1: "AC",
+    lcls_systm2: "AC01",
+    lcls_systm3: "AC010100",
+    mapx: "126.9769",
+    mapy: "37.5796",
+    content_type_nm: "관광지",
+    lcls1_nm: "인문(문화/예술/역사)",
+    lcls2_nm: "역사관광지",
+    lcls3_nm: "고궁",
+    regn_nm: "서울특별시",
+    signgu_nm: "종로구",
+    ...overrides,
+  };
+}
+
+describe("fetchEnrichInput", () => {
+  it("코드표 3개를 LEFT JOIN하고 COALESCE로 빈 문자열을 보정한다", async () => {
+    const { pg, queryMock } = fakePg([enrichRow()]);
+    await fetchEnrichInput(pg, "126508");
+    const [sql, params] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("LEFT JOIN tour_content_types");
+    expect(sql).toContain("LEFT JOIN tour_lcls_systm_codes");
+    expect(sql).toContain("LEFT JOIN tour_ldong_codes");
+    expect(sql).toContain("COALESCE(t.name, '')");
+    expect(sql).toContain("COALESCE(d.signgu_name, '')");
+    expect(params).toEqual(["126508"]);
+  });
+
+  it("프롬프트용 이름과 payload용 코드·좌표·structured_text를 한 쿼리로 반환한다", async () => {
+    const { pg, queryMock } = fakePg([enrichRow()]);
+    const input = await fetchEnrichInput(pg, "126508");
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(input).toEqual({
+      contentid: "126508",
+      title: "경복궁",
+      addr1: "서울특별시 종로구 사직로 161",
+      addr2: "",
+      overview: "조선 왕조의 법궁이다.",
+      structuredText: null,
+      contenttypeid: "12",
+      ldongRegnCd: "11",
+      ldongSignguCd: "110",
+      lclsSystm1: "AC",
+      lclsSystm2: "AC01",
+      lclsSystm3: "AC010100",
+      mapx: "126.9769",
+      mapy: "37.5796",
+      contentTypeNm: "관광지",
+      lcls1Nm: "인문(문화/예술/역사)",
+      lcls2Nm: "역사관광지",
+      lcls3Nm: "고궁",
+      regnNm: "서울특별시",
+      signguNm: "종로구",
+    });
+  });
+
+  it("structured_text가 있으면 그대로 담는다", async () => {
+    const { pg } = fakePg([enrichRow({ structured_text: "경복궁 — 고궁\n설명: ..." })]);
+    const input = await fetchEnrichInput(pg, "126508");
+    expect(input?.structuredText).toBe("경복궁 — 고궁\n설명: ...");
+  });
+
+  it("overview가 NULL이면 빈 문자열로 정규화한다", async () => {
+    const { pg } = fakePg([enrichRow({ overview: null })]);
+    expect((await fetchEnrichInput(pg, "126508"))?.overview).toBe("");
+  });
+
+  it("행이 없으면 null을 반환한다", async () => {
+    const { pg } = fakePg([]);
+    expect(await fetchEnrichInput(pg, "없음")).toBeNull();
   });
 });
