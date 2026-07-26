@@ -99,6 +99,74 @@ export function formatStageBacklog(counts: StageCounts): string {
   );
 }
 
+export interface RunCollectDetailOptions {
+  dailyLimit: number;
+  maxAttempts: number;
+  skipDetail: boolean;
+  skipEmbed: boolean;
+}
+
+/**
+ * collect-detail의 조합 루트 — 클라이언트 생성, 두 스킵 플래그에 따른 조건부 배선,
+ * 정리(close)를 한곳에 모은다. `.action()`은 옵션 파싱만 하고 이 함수를 호출한다.
+ *
+ * createEnricher를 호출하는 지점이 이 함수 안에 정확히 하나여야 한다 — 차단기(stats.disabled)와
+ * Gemini 쿼터 단축회로(내부 geminiQuotaExhausted)가 createEnricher가 반환하는 클로저 안에
+ * 살아 있어서, 실행당 인스턴스 1개를 skipDetail의 두 분기가 공유할 때만 두 안전장치가
+ * 이번 실행 전체를 보호한다. 분기마다 새로 만들면 두 안전장치가 매번 초기화된다.
+ */
+export async function runCollectDetail(opts: RunCollectDetailOptions): Promise<void> {
+  const { dailyLimit, maxAttempts, skipDetail, skipEmbed } = opts;
+  assertSkipFlags(skipDetail, skipEmbed);
+
+  const pg = new PostgresClient();
+  await pg.connect();
+  let qdrant: QdrantStore | undefined;
+  try {
+    let enricher: Enricher | undefined;
+    if (!skipEmbed) {
+      // 클라이언트 생성자가 requireEnv로 throw하므로 조건부로 만든다 —
+      // --skip-embed면 GEMINI_API_KEY·TEI_BASE_URL·QDRANT_URL 없이도 동작해야 한다.
+      const gemini = new GeminiClient();
+      const tei = new TeiEmbeddingClient();
+      qdrant = new QdrantStore();
+      await qdrant.connect();
+      const collection = await ensureCollection(
+        qdrant,
+        tei,
+        optionalEnv("QDRANT_COLLECTION", "tour_contents"),
+      );
+      logger.info(
+        `컬렉션 ${collection.name} (${collection.vectorSize}차원, Cosine) 확인`,
+      );
+      enricher = createEnricher(gemini, tei, qdrant, pg, collection, { maxAttempts });
+    }
+
+    if (skipDetail) {
+      // assertSkipFlags가 통과했고 skipDetail이 참이므로 enricher는 반드시 존재한다.
+      const result = await enrichBacklog(pg, enricher as Enricher, dailyLimit);
+      logger.info(formatBacklogSummary(result));
+    } else {
+      const tourApi = new TourApiClient();
+      const result = await collectDetail(
+        tourApi,
+        pg,
+        { dailyLimit, maxAttempts },
+        enricher,
+      );
+      logger.info(formatCollectDetailSummary(result));
+    }
+
+    if (enricher !== undefined) {
+      // --skip-embed면 스테이지 컬럼을 쓰지 않았으므로 출력할 의미가 없다.
+      logger.info(formatStageBacklog(await countStageStatus(pg)));
+    }
+  } finally {
+    await qdrant?.close();
+    await pg.close();
+  }
+}
+
 /** commander program에 `collect-detail` 명령을 등록한다. */
 export function registerCollectDetail(program: Command): void {
   program
@@ -113,55 +181,11 @@ export function registerCollectDetail(program: Command): void {
     .action(async (options: CollectDetailCliOptions) => {
       const dailyLimit = parsePositiveInt("--daily-limit", options.dailyLimit, 900);
       const maxAttempts = parsePositiveInt("--max-attempts", options.maxAttempts, 3);
-      const skipDetail = options.skipDetail ?? false;
-      const skipEmbed = options.skipEmbed ?? false;
-      assertSkipFlags(skipDetail, skipEmbed);
-
-      const pg = new PostgresClient();
-      await pg.connect();
-      let qdrant: QdrantStore | undefined;
-      try {
-        let enricher: Enricher | undefined;
-        if (!skipEmbed) {
-          // 클라이언트 생성자가 requireEnv로 throw하므로 조건부로 만든다 —
-          // --skip-embed면 GEMINI_API_KEY·TEI_BASE_URL·QDRANT_URL 없이도 동작해야 한다.
-          const gemini = new GeminiClient();
-          const tei = new TeiEmbeddingClient();
-          qdrant = new QdrantStore();
-          await qdrant.connect();
-          const collection = await ensureCollection(
-            qdrant,
-            tei,
-            optionalEnv("QDRANT_COLLECTION", "tour_contents"),
-          );
-          logger.info(
-            `컬렉션 ${collection.name} (${collection.vectorSize}차원, Cosine) 확인`,
-          );
-          enricher = createEnricher(gemini, tei, qdrant, pg, collection, { maxAttempts });
-        }
-
-        if (skipDetail) {
-          // assertSkipFlags가 통과했고 skipDetail이 참이므로 enricher는 반드시 존재한다.
-          const result = await enrichBacklog(pg, enricher as Enricher, dailyLimit);
-          logger.info(formatBacklogSummary(result));
-        } else {
-          const tourApi = new TourApiClient();
-          const result = await collectDetail(
-            tourApi,
-            pg,
-            { dailyLimit, maxAttempts },
-            enricher,
-          );
-          logger.info(formatCollectDetailSummary(result));
-        }
-
-        if (enricher !== undefined) {
-          // --skip-embed면 스테이지 컬럼을 쓰지 않았으므로 출력할 의미가 없다.
-          logger.info(formatStageBacklog(await countStageStatus(pg)));
-        }
-      } finally {
-        await qdrant?.close();
-        await pg.close();
-      }
+      await runCollectDetail({
+        dailyLimit,
+        maxAttempts,
+        skipDetail: options.skipDetail ?? false,
+        skipEmbed: options.skipEmbed ?? false,
+      });
     });
 }
