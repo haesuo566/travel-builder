@@ -58,31 +58,44 @@ describe("createTourContentsTable", () => {
     await createTourContentsTable(client);
     const sql = queryMock.mock.calls.map((c) => c[0] as string).join("\n");
     expect(sql).toContain("ALTER TABLE tour_contents");
-    for (const col of [
-      "structured_text",
-      "structure_status",
-      "structure_attempt_count",
-      "structure_last_error",
-      "structured_at",
-      "embed_status",
-      "embed_attempt_count",
-      "embed_last_error",
-      "embedded_at",
-    ]) {
+    // 컬럼마다 타입·기본값까지 검증한다 (컬럼명만 확인하면 잘못된 타입/기본값이
+    // 섞여 들어가도 통과해버린다). 정렬 공백은 \s+로 흡수한다.
+    const stageColumnDefs: Array<[string, string]> = [
+      ["structured_text", "TEXT"],
+      ["structure_status", "TEXT NOT NULL DEFAULT 'pending'"],
+      ["structure_attempt_count", "INT\\s+NOT NULL DEFAULT 0"],
+      ["structure_last_error", "TEXT"],
+      ["structured_at", "TIMESTAMPTZ"],
+      ["embed_status", "TEXT NOT NULL DEFAULT 'pending'"],
+      ["embed_attempt_count", "INT\\s+NOT NULL DEFAULT 0"],
+      ["embed_last_error", "TEXT"],
+      ["embedded_at", "TIMESTAMPTZ"],
+    ];
+    for (const [col, typeAndDefault] of stageColumnDefs) {
       expect(sql).toContain(`ADD COLUMN IF NOT EXISTS ${col}`);
+      expect(sql).toMatch(new RegExp(`${col}\\s+${typeAndDefault}(?:,|\\s*$)`, "m"));
     }
-    expect(sql).toMatch(/structure_status\s+TEXT NOT NULL DEFAULT 'pending'/);
-    expect(sql).toMatch(/embed_status\s+TEXT NOT NULL DEFAULT 'pending'/);
   });
 
   it("스테이지별 부분 인덱스를 만들고 진행 순서를 조건에 담는다", async () => {
     const { client, queryMock } = fakeClient();
     await createTourContentsTable(client);
-    const sql = queryMock.mock.calls.map((c) => c[0] as string).join("\n");
+    const calls = queryMock.mock.calls.map((c) => c[0] as string);
+    const sql = calls.join("\n");
+    // WHERE 절을 자기 자신의 CREATE INDEX 호출에 묶어서 검증한다 — 조인된
+    // 문자열 전체에서만 찾으면 두 인덱스의 WHERE 조건이 서로 뒤바뀌어도
+    // (스테이지 진행 순서를 깨뜨리는 결함) 통과해버린다.
+    const callFor = (indexName: string) => calls.find((s) => s.includes(indexName));
+
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_tour_contents_structure_pending");
-    expect(sql).toContain("WHERE detail_status = 'done' AND structure_status = 'pending'");
+    expect(callFor("idx_tour_contents_structure_pending")).toContain(
+      "WHERE detail_status = 'done' AND structure_status = 'pending'",
+    );
+
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_tour_contents_embed_pending");
-    expect(sql).toContain("WHERE structure_status = 'done' AND embed_status = 'pending'");
+    expect(callFor("idx_tour_contents_embed_pending")).toContain(
+      "WHERE structure_status = 'done' AND embed_status = 'pending'",
+    );
   });
 });
 
