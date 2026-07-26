@@ -73,6 +73,24 @@ function rateLimitError(): Error {
   return Object.assign(new Error("Resource has been exhausted"), { status: 429 });
 }
 
+/**
+ * F1: 라벨은 모두 있지만 첫 줄에 '—' 구분자가 없는 모델 출력.
+ * validateStructuredText가 던지는 오류 메시지에 모델 출력 원문("1429")이 그대로
+ * 담겨 isRateLimited의 /429/ 패턴과 우연히 매칭되는 시나리오를 재현한다.
+ */
+function invalidFirstLineText(): string {
+  return [
+    "숭례문 1429년 중건",
+    "무엇을 하는 곳: 관람",
+    "실내/실외: 실내외 혼합",
+    "추천 동반자: 가족, 커플, 혼자",
+    "적정 소요시간: 1시간 이내",
+    "계절/날씨: 사계절",
+    "분위기: 고요함",
+    "설명: 조선시대 건축물이다.",
+  ].join("\n");
+}
+
 function harness(overrides: {
   generate?: ReturnType<typeof vi.fn>;
   embed?: ReturnType<typeof vi.fn>;
@@ -82,6 +100,8 @@ function harness(overrides: {
   const generate = overrides.generate ?? vi.fn().mockResolvedValue(validText());
   const embed = overrides.embed ?? vi.fn().mockResolvedValue([VECTOR]);
   const upsert = overrides.upsert ?? vi.fn().mockResolvedValue(undefined);
+  // sleep도 vi.fn으로 주입해 백오프 지연 인자를 검증할 수 있게 한다 (F4).
+  const sleep = vi.fn().mockResolvedValue(undefined);
   const pg = {} as PostgresClient;
   const enricher = createEnricher(
     { generate } as unknown as GeminiClient,
@@ -89,9 +109,9 @@ function harness(overrides: {
     { upsert } as unknown as QdrantStore,
     pg,
     COLLECTION,
-    { sleep: async () => {}, ...overrides.opts },
+    { ...overrides.opts, sleep },
   );
-  return { enricher, generate, embed, upsert, pg };
+  return { enricher, generate, embed, upsert, pg, sleep };
 }
 
 beforeEach(() => {
@@ -197,13 +217,34 @@ describe("createEnricher Gemini 실패", () => {
     // 쿼터 소진은 데이터의 문제가 아니라 호출자 사정이다. attempt를 올리면
     // 매일 한도 경계의 항목이 실패를 누적해 멀쩡한 데이터가 영구 제외된다.
     const generate = vi.fn().mockRejectedValue(rateLimitError());
-    const { enricher, embed } = harness({ generate, opts: { geminiRetries: 2 } });
+    const { enricher, embed, sleep } = harness({ generate });
     await enricher.enrich("126508");
-    expect(generate).toHaveBeenCalledTimes(3); // 최초 1 + 재시도 2
+    expect(generate).toHaveBeenCalledTimes(4); // 최초 1 + 재시도 3 (기본 geminiRetries)
+    // F4: RETRY_BASE_DELAY_MS * 2 ** attempt를 정확히 검증한다 — 2 * attempt로
+    // 퇴화해도 sleep이 async () => {}였던 예전 하네스에서는 21개 테스트가 전부 통과했다.
+    expect(sleep.mock.calls).toEqual([[2000], [4000], [8000]]);
     expect(mocked.markStructureFailure).not.toHaveBeenCalled();
     expect(mocked.markStructureDone).not.toHaveBeenCalled();
     expect(embed).not.toHaveBeenCalled();
     expect(enricher.stats()).toMatchObject({ geminiRateLimited: 1, structured: 0, embedded: 0 });
+  });
+
+  it("포맷 검증 실패 메시지에 429가 포함돼도 쿼터 초과로 오분류하지 않는다 (F1)", async () => {
+    // validateStructuredText의 오류 메시지는 모델 출력 원문을 그대로 담는다.
+    // 첫 줄에 "1429"가 있으면 /429/ 정규식과 우연히 매칭되지만, 이 오류는
+    // callGemini가 아니라 검증 단계에서 난 것이므로 isRateLimited를 타면 안 된다.
+    const generate = vi.fn().mockResolvedValue(invalidFirstLineText());
+    const { enricher, embed } = harness({ generate });
+    await enricher.enrich("126508");
+    expect(mocked.markStructureFailure).toHaveBeenCalledWith(
+      expect.anything(),
+      "126508",
+      expect.stringContaining("1429"),
+      3,
+    );
+    expect(mocked.markStructureDone).not.toHaveBeenCalled();
+    expect(embed).not.toHaveBeenCalled();
+    expect(enricher.stats()).toMatchObject({ geminiRateLimited: 0, structureRetry: 1 });
   });
 
   it("기타 오류는 실패로 기록하되 throw하지 않는다", async () => {
@@ -263,6 +304,51 @@ describe("createEnricher Gemini 실패", () => {
     expect(generate).toHaveBeenCalledTimes(19);
     expect(enricher.stats().disabled).toBe(false);
   });
+
+  it("연속 429 문턱에 도달하면 이후 호출은 Gemini를 아예 건너뛴다 (F2)", async () => {
+    // geminiRetries: 0 → 매 enrich 호출마다 Gemini 1회로 즉시 소진, sleep 없음.
+    // 기본 maxConsecutiveRateLimits(3)에 도달할 때까지 세 번의 enrich가 필요하다.
+    const generate = vi.fn().mockRejectedValue(rateLimitError());
+    const { enricher, generate: gen, embed, sleep } = harness({
+      generate,
+      opts: { geminiRetries: 0 },
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await enricher.enrich(String(i));
+    }
+    expect(gen).toHaveBeenCalledTimes(3);
+
+    gen.mockClear();
+    sleep.mockClear();
+    await enricher.enrich("threshold-reached");
+
+    expect(gen).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+    expect(mocked.markStructureFailure).not.toHaveBeenCalled();
+    expect(mocked.markStructureDone).not.toHaveBeenCalled();
+    expect(embed).not.toHaveBeenCalled();
+    expect(enricher.stats().geminiRateLimited).toBe(4);
+  });
+
+  it("연속 429 문턱 도달 후에도 이미 구조화된 행은 계속 임베딩한다 (F2)", async () => {
+    const generate = vi.fn().mockRejectedValue(rateLimitError());
+    const { enricher, generate: gen, embed, upsert } = harness({
+      generate,
+      opts: { geminiRetries: 0 },
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await enricher.enrich(String(i));
+    }
+    expect(gen).toHaveBeenCalledTimes(3);
+
+    mocked.fetchEnrichInput.mockResolvedValue(input({ structuredText: "기존 텍스트" }));
+    await enricher.enrich("already-structured");
+
+    expect(gen).toHaveBeenCalledTimes(3); // 쿼터 소진 이후로는 추가 호출 없음
+    expect(embed).toHaveBeenCalledWith(["기존 텍스트"]);
+    expect(upsert).toHaveBeenCalled();
+    expect(enricher.stats().embedded).toBe(1);
+  });
 });
 
 describe("createEnricher 임베딩 실패", () => {
@@ -314,6 +400,39 @@ describe("createEnricher 임베딩 실패", () => {
     );
     expect(vi.mocked(logger.warn)).toHaveBeenCalled();
     expect(enricher.stats()).toMatchObject({ embedFailed: 1, embedded: 0 });
+  });
+
+  it("임베딩 단계의 연속 실패도 차단기를 작동시킨다 (F3)", async () => {
+    // TEI/Qdrant 장애처럼 시스템 장애가 항목별 오류로 위장해 들어오면 claim한
+    // 전량이 실패로 소진된다 — 구조화·임베딩 공유 카운터가 손상을 10건으로 묶는다.
+    // structuredText를 이미 채워 구조화 성공이 카운터를 리셋하지 않게 한다.
+    mocked.fetchEnrichInput.mockResolvedValue(input({ structuredText: "기존 텍스트" }));
+    const embed = vi.fn().mockRejectedValue(new Error("TEI 502"));
+    const { enricher } = harness({ embed });
+    for (let i = 0; i < 15; i += 1) {
+      await enricher.enrich(String(i));
+    }
+    expect(embed).toHaveBeenCalledTimes(10);
+    expect(mocked.markEmbedFailure).toHaveBeenCalledTimes(10);
+    expect(enricher.stats().disabled).toBe(true);
+    expect(vi.mocked(logger.error)).toHaveBeenCalledWith(expect.stringContaining("연속"));
+  });
+
+  it("임베딩 성공은 연속 실패 카운터를 초기화한다 (F3)", async () => {
+    const embed = vi.fn(async (texts: string[]) => {
+      if (texts[0]?.includes("성공")) return [VECTOR];
+      throw new Error("TEI 502");
+    });
+    const { enricher } = harness({ embed });
+    // 실패 9 → 성공 1 → 실패 9: 연속 10회에 도달하지 않아 19회 모두 호출된다.
+    for (let i = 0; i < 19; i += 1) {
+      mocked.fetchEnrichInput.mockResolvedValue(
+        input({ structuredText: i === 9 ? "성공" : `실패${i}` }),
+      );
+      await enricher.enrich(String(i));
+    }
+    expect(embed).toHaveBeenCalledTimes(19);
+    expect(enricher.stats().disabled).toBe(false);
   });
 });
 
