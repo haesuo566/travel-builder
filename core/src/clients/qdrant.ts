@@ -64,7 +64,9 @@ export class QdrantStore {
    * 404가 아닌 에러는 전파한다 — 연결 장애를 "없음"으로 오분류하면
    * 기존 컬렉션 위에 다른 차원으로 재생성을 시도하게 된다.
    */
-  async getCollectionInfo(name: string): Promise<{ vectorSize: number } | null> {
+  async getCollectionInfo(
+    name: string,
+  ): Promise<{ vectorSize: number; distance: QdrantDistance } | null> {
     const client = this.requireClient();
     let info: Awaited<ReturnType<QdrantClient["getCollection"]>>;
     try {
@@ -81,7 +83,16 @@ export class QdrantStore {
     if (!Number.isFinite(size) || size <= 0) {
       throw new Error(`컬렉션 ${name}의 벡터 크기를 읽을 수 없습니다.`);
     }
-    return { vectorSize: size };
+    const distance =
+      typeof vectors === "object" && vectors !== null && "distance" in vectors
+        ? (vectors as { distance: unknown }).distance
+        : undefined;
+    if (distance !== "Cosine" && distance !== "Euclid" && distance !== "Dot") {
+      // 차원과 마찬가지로 거리 계산 방식을 버리고 넘어가면, Euclid로 만들어진 기존
+      // 컬렉션 위에 코사인 정규화 벡터가 조용히 쓰이는 조합 오류를 잡을 수 없다.
+      throw new Error(`컬렉션 ${name}의 distance를 읽을 수 없습니다: ${String(distance)}`);
+    }
+    return { vectorSize: size, distance };
   }
 
   async createCollection(

@@ -4,12 +4,14 @@ import {
   toPayload,
   toPointId,
 } from "../../src/lib/qdrantCollection.js";
-import type { QdrantStore } from "../../src/clients/qdrant.js";
+import type { QdrantDistance, QdrantStore } from "../../src/clients/qdrant.js";
 import type { TeiEmbeddingClient } from "../../src/clients/tei.js";
 import type { EnrichInput } from "../../src/lib/tourContentsTable.js";
 
-function fakeQdrant(existing: { vectorSize: number } | null) {
-  const getCollectionInfo = vi.fn().mockResolvedValue(existing);
+function fakeQdrant(existing: { vectorSize: number; distance?: QdrantDistance } | null) {
+  const info =
+    existing === null ? null : { vectorSize: existing.vectorSize, distance: existing.distance ?? "Cosine" };
+  const getCollectionInfo = vi.fn().mockResolvedValue(info);
   const createCollection = vi.fn().mockResolvedValue(undefined);
   const deleteCollection = vi.fn().mockResolvedValue(undefined);
   return {
@@ -58,15 +60,16 @@ describe("ensureCollection", () => {
     const { tei, embed } = fakeTei(1024);
     const info = await ensureCollection(store, tei, "tour_contents");
     expect(embed).toHaveBeenCalledTimes(1);
-    expect(info).toEqual({ name: "tour_contents", vectorSize: 1024 });
+    expect(info).toEqual({ name: "tour_contents", vectorSize: 1024, distance: "Cosine" });
   });
 
-  it("컬렉션이 없으면 감지한 차원으로 생성한다", async () => {
+  it("컬렉션이 없으면 감지한 차원과 Cosine으로 생성한다", async () => {
     const { store, createCollection } = fakeQdrant(null);
     const { tei } = fakeTei(1024);
     const info = await ensureCollection(store, tei, "tour_contents");
-    expect(createCollection).toHaveBeenCalledWith("tour_contents", 1024);
+    expect(createCollection).toHaveBeenCalledWith("tour_contents", 1024, "Cosine");
     expect(info.vectorSize).toBe(1024);
+    expect(info.distance).toBe("Cosine");
   });
 
   it("기존 차원이 같으면 생성하지 않는다", async () => {
@@ -82,6 +85,20 @@ describe("ensureCollection", () => {
     await expect(ensureCollection(store, tei, "tour_contents")).rejects.toThrow("768");
     await expect(ensureCollection(store, tei, "tour_contents")).rejects.toThrow("1024");
     // 컬렉션을 날리는 것은 파괴적이고 되돌릴 수 없으므로 사람이 결정할 일이다.
+    expect(deleteCollection).not.toHaveBeenCalled();
+    expect(createCollection).not.toHaveBeenCalled();
+  });
+
+  it("기존 distance가 다르면 throw하고 컬렉션을 삭제하지 않는다 (Minor 7)", async () => {
+    // Euclid로 만들어진 기존 컬렉션 위에 코사인 정규화 벡터를 쓰면 검색 품질이
+    // 조용히 틀어진다 — 차원 불일치와 같은 종류의 오류이므로 같은 방식으로 막는다.
+    const { store, createCollection, deleteCollection } = fakeQdrant({
+      vectorSize: 1024,
+      distance: "Euclid",
+    });
+    const { tei } = fakeTei(1024);
+    await expect(ensureCollection(store, tei, "tour_contents")).rejects.toThrow("Euclid");
+    await expect(ensureCollection(store, tei, "tour_contents")).rejects.toThrow("Cosine");
     expect(deleteCollection).not.toHaveBeenCalled();
     expect(createCollection).not.toHaveBeenCalled();
   });

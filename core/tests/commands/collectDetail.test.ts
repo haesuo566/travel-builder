@@ -153,16 +153,22 @@ describe("formatEnrichSummary", () => {
     expect(text).toContain("임베딩 875건 upsert");
   });
 
-  it("Gemini 한도로 건너뛴 건수가 있으면 이어진다고 안내한다", () => {
+  it("Gemini 한도로 건너뛴 건수가 있으면 --skip-detail로 이어진다고 안내한다 (Minor 5)", () => {
+    // 맨 `tb collect-detail` 재실행은 그 실행에서 상세 수집한 행만 enrich한다.
+    // 구조화가 건너뛰어진 과거 행을 다시 보려면 --skip-detail이 필요하므로 명시한다.
     const text = formatEnrichSummary(stats({ geminiRateLimited: 20 }));
     expect(text).toContain("Gemini 한도");
     expect(text).toContain("20건");
-    expect(text).toContain("다음 실행");
+    expect(text).toContain("--skip-detail");
   });
 
-  it("차단기가 작동했으면 키와 네트워크 확인을 안내한다", () => {
+  it("차단기가 작동했으면 세 서브시스템 모두를 확인하라고 안내한다 (Minor 4)", () => {
+    // F3 이후 차단기는 임베딩 실패도 센다 — Gemini만 지목하면 TEI/Qdrant 장애로
+    // 트립된 경우 엉뚱한 곳을 보게 된다.
     const text = formatEnrichSummary(stats({ disabled: true }));
     expect(text).toContain("GEMINI_API_KEY");
+    expect(text).toContain("TEI");
+    expect(text).toContain("Qdrant");
   });
 
   it("정상 종료면 경고 문구를 넣지 않는다", () => {
@@ -189,10 +195,27 @@ describe("formatCollectDetailSummary + enrichStats", () => {
 
 describe("formatBacklogSummary", () => {
   it("처리 건수와 구조화·임베딩 집계를 담는다", () => {
-    const text = formatBacklogSummary({ processed: 100, stats: stats() });
+    const text = formatBacklogSummary({ processed: 100, skipped: 0, stats: stats() });
     expect(text).toContain("백로그 100건");
     expect(text).toContain("구조화 880건");
     expect(text).toContain("임베딩 875건 upsert");
+  });
+
+  it("차단기 트립 후 스킵된 건수를 함께 알린다 (Minor 8)", () => {
+    // stats.disabled만으로는 "claim한 게 애초에 적었음"과 "10건 실패로 중단하고
+    // 나머지 수천 건을 스킵했음"을 구분할 수 없다.
+    const text = formatBacklogSummary({
+      processed: 10,
+      skipped: 890,
+      stats: stats({ disabled: true }),
+    });
+    expect(text).toContain("백로그 10건");
+    expect(text).toContain("스킵 890건");
+  });
+
+  it("스킵이 없으면 스킵 문구를 넣지 않는다", () => {
+    const text = formatBacklogSummary({ processed: 100, skipped: 0, stats: stats() });
+    expect(text).not.toContain("스킵");
   });
 });
 
@@ -232,10 +255,10 @@ describe("runCollectDetail 배선 (Important 2)", () => {
     pgCloseMock.mockResolvedValue(undefined);
     qdrantConnectMock.mockResolvedValue(undefined);
     qdrantCloseMock.mockResolvedValue(undefined);
-    mockedEnsureCollection.mockResolvedValue({ name: "tour_contents", vectorSize: 4 });
+    mockedEnsureCollection.mockResolvedValue({ name: "tour_contents", vectorSize: 4, distance: "Cosine" as const });
     mockedCreateEnricher.mockReturnValue(fakeEnricher);
     mockedCollectDetailService.mockResolvedValue(result());
-    mockedEnrichBacklog.mockResolvedValue({ processed: 0, stats: stats() });
+    mockedEnrichBacklog.mockResolvedValue({ processed: 0, skipped: 0, stats: stats() });
     mockedCountStageStatus.mockResolvedValue({
       structure: { pending: 0, done: 0, failed: 0 },
       embed: { pending: 0, done: 0, failed: 0 },
@@ -257,9 +280,9 @@ describe("runCollectDetail 배선 (Important 2)", () => {
     pgCloseMock.mockResolvedValue(undefined);
     qdrantConnectMock.mockResolvedValue(undefined);
     qdrantCloseMock.mockResolvedValue(undefined);
-    mockedEnsureCollection.mockResolvedValue({ name: "tour_contents", vectorSize: 4 });
+    mockedEnsureCollection.mockResolvedValue({ name: "tour_contents", vectorSize: 4, distance: "Cosine" as const });
     mockedCreateEnricher.mockReturnValue(fakeEnricher);
-    mockedEnrichBacklog.mockResolvedValue({ processed: 0, stats: stats() });
+    mockedEnrichBacklog.mockResolvedValue({ processed: 0, skipped: 0, stats: stats() });
     mockedCountStageStatus.mockResolvedValue({
       structure: { pending: 0, done: 0, failed: 0 },
       embed: { pending: 0, done: 0, failed: 0 },
@@ -301,7 +324,7 @@ describe("runCollectDetail 배선 (Important 2)", () => {
     pgCloseMock.mockResolvedValue(undefined);
     qdrantConnectMock.mockResolvedValue(undefined);
     qdrantCloseMock.mockResolvedValue(undefined);
-    mockedEnsureCollection.mockResolvedValue({ name: "tour_contents", vectorSize: 4 });
+    mockedEnsureCollection.mockResolvedValue({ name: "tour_contents", vectorSize: 4, distance: "Cosine" as const });
     mockedCreateEnricher.mockReturnValue(fakeEnricher);
     mockedCollectDetailService.mockRejectedValue(new Error("boom"));
 

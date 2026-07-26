@@ -54,13 +54,13 @@ export function formatEnrichSummary(stats: EnrichStats): string {
   if (stats.geminiRateLimited > 0) {
     lines.push(
       `       Gemini 한도로 ${stats.geminiRateLimited}건 구조화를 건너뜀 — ` +
-        `다음 실행에서 이어집니다.`,
+        `다음 --skip-detail 실행에서 이어집니다.`,
     );
   }
   if (stats.disabled) {
     lines.push(
-      "       구조화 연속 실패로 임베딩이 중단됐습니다. " +
-        "GEMINI_API_KEY와 네트워크를 확인하세요.",
+      "       연속 실패로 구조화·임베딩이 중단됐습니다. " +
+        "GEMINI_API_KEY·TEI·Qdrant 연결 상태를 확인하세요.",
     );
   }
   return lines.join("\n");
@@ -84,7 +84,13 @@ export function formatCollectDetailSummary(result: CollectDetailResult): string 
 
 /** 백로그 실행 결과를 사람이 읽을 요약으로 만든다 (순수 함수). */
 export function formatBacklogSummary(result: EnrichBacklogResult): string {
-  return `종료 — 백로그 ${result.processed}건 처리\n${formatEnrichSummary(result.stats)}`;
+  // 차단기 트립 후 스킵된 건수를 함께 보여줘야 "claim한 게 애초에 적었음"과
+  // "10건 실패로 중단하고 나머지 수천 건을 스킵했음"이 구분된다.
+  const skippedNote = result.skipped > 0 ? ` (차단기로 스킵 ${result.skipped}건 제외)` : "";
+  return (
+    `종료 — 백로그 ${result.processed}건 처리${skippedNote}\n` +
+    `${formatEnrichSummary(result.stats)}`
+  );
 }
 
 /**
@@ -137,14 +143,19 @@ export async function runCollectDetail(opts: RunCollectDetailOptions): Promise<v
         optionalEnv("QDRANT_COLLECTION", "tour_contents"),
       );
       logger.info(
-        `컬렉션 ${collection.name} (${collection.vectorSize}차원, Cosine) 확인`,
+        `컬렉션 ${collection.name} (${collection.vectorSize}차원, ${collection.distance}) 확인`,
       );
       enricher = createEnricher(gemini, tei, qdrant, pg, collection, { maxAttempts });
     }
 
     if (skipDetail) {
-      // assertSkipFlags가 통과했고 skipDetail이 참이므로 enricher는 반드시 존재한다.
-      const result = await enrichBacklog(pg, enricher as Enricher, dailyLimit);
+      // assertSkipFlags가 통과했고 skipDetail이 참이므로 enricher는 반드시 존재해야 한다.
+      // 이 불변식이 깨지면 27행 떨어진 캐스트 뒤에서 TypeError로 터지는 대신
+      // 여기서 명확한 메시지로 즉시 드러나야 한다.
+      if (enricher === undefined) {
+        throw new Error("--skip-detail은 구조화·임베딩 클라이언트를 필요로 합니다.");
+      }
+      const result = await enrichBacklog(pg, enricher, dailyLimit);
       logger.info(formatBacklogSummary(result));
     } else {
       const tourApi = new TourApiClient();

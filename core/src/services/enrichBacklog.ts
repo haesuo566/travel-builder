@@ -9,6 +9,12 @@ import { logger } from "../lib/logger.js";
 
 export interface EnrichBacklogResult {
   processed: number;
+  /**
+   * 차단기(stats.disabled) 트립 후 enrich를 부르지 않고 건너뛴 건수.
+   * 없으면 "claim한 게 애초에 적었음"과 "10건 실패로 중단하고 나머지 수천 건을 스킵했음"을
+   * processed 하나로는 구분할 수 없다.
+   */
+  skipped: number;
   stats: EnrichStats;
 }
 
@@ -41,9 +47,16 @@ export async function enrichBacklog(
   );
 
   let processed = 0;
+  let skipped = 0;
   for (const contentid of targets) {
+    if (enricher.stats().disabled) {
+      // enrich() 자체도 no-op이지만, 호출조차 하지 않아야 "처리"와 "차단기 이후 스킵"이
+      // processed 하나에 뭉개지지 않는다.
+      skipped += 1;
+      continue;
+    }
     await enricher.enrich(contentid);
     processed += 1;
   }
-  return { processed, stats: enricher.stats() };
+  return { processed, skipped, stats: enricher.stats() };
 }

@@ -27,7 +27,7 @@ vi.mock("../../src/lib/tourContentsTable.js", async (importOriginal) => {
 const mocked = vi.mocked(table);
 
 /** 테스트 컬렉션은 4차원 — embed mock의 벡터 길이와 맞춘다. */
-const COLLECTION = { name: "tour_contents", vectorSize: 4 };
+const COLLECTION = { name: "tour_contents", vectorSize: 4, distance: "Cosine" as const };
 const VECTOR = [0.1, 0.2, 0.3, 0.4];
 
 function input(overrides: Partial<EnrichInput> = {}): EnrichInput {

@@ -147,14 +147,29 @@ describe("QdrantStore", () => {
     expect(deleteMock).toHaveBeenCalledWith("col", { wait: true, points: [1, 2] });
   });
 
-  it("getCollectionInfo가 벡터 차원을 반환한다", async () => {
+  it("getCollectionInfo가 벡터 차원과 distance를 반환한다", async () => {
     getCollectionMock.mockResolvedValue({
       config: { params: { vectors: { size: 1024, distance: "Cosine" } } },
     });
     const store = new QdrantStore();
     await store.connect();
-    expect(await store.getCollectionInfo("col")).toEqual({ vectorSize: 1024 });
+    expect(await store.getCollectionInfo("col")).toEqual({
+      vectorSize: 1024,
+      distance: "Cosine",
+    });
     expect(getCollectionMock).toHaveBeenCalledWith("col");
+  });
+
+  it("distance가 Euclid·Dot이어도 그대로 반환한다", async () => {
+    getCollectionMock.mockResolvedValue({
+      config: { params: { vectors: { size: 768, distance: "Euclid" } } },
+    });
+    const store = new QdrantStore();
+    await store.connect();
+    expect(await store.getCollectionInfo("col")).toEqual({
+      vectorSize: 768,
+      distance: "Euclid",
+    });
   });
 
   it("컬렉션이 없으면(404) null을 반환한다", async () => {
@@ -178,6 +193,15 @@ describe("QdrantStore", () => {
     const store = new QdrantStore();
     await store.connect();
     await expect(store.getCollectionInfo("col")).rejects.toThrow("벡터 크기");
+  });
+
+  it("distance를 읽을 수 없는(알 수 없는 값) 응답이면 throw (Minor 7)", async () => {
+    // size는 유효한데 distance가 없거나 SDK가 모르는 값이면, 이를 무시하고 넘어가면
+    // Euclid/Dot로 만들어진 컬렉션 위에 코사인 정규화 벡터가 조용히 쓰인다.
+    getCollectionMock.mockResolvedValue({ config: { params: { vectors: { size: 1024 } } } });
+    const store = new QdrantStore();
+    await store.connect();
+    await expect(store.getCollectionInfo("col")).rejects.toThrow("distance");
   });
 
   it("connect 전 getCollectionInfo 호출 시 throw", async () => {

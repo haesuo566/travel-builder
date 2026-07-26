@@ -94,6 +94,22 @@ describe("enrichBacklog", () => {
     const result = await enrichBacklog(fakePg(), enricher, 100);
     expect(enrich).not.toHaveBeenCalled();
     expect(result.processed).toBe(0);
+    expect(result.skipped).toBe(0);
+  });
+
+  it("차단기가 트립되면 이후 항목은 enrich를 부르지 않고 skipped로 센다 (Minor 8)", async () => {
+    // stats.disabled만 보면 "claim한 게 애초에 적었음"과 "10건 실패로 중단하고
+    // 나머지를 스킵했음"을 processed 하나로 구분할 수 없다.
+    mocked.claimStructurePending.mockResolvedValue(["1", "2", "3"]);
+    let disabled = false;
+    const enrich = vi.fn().mockImplementation(async () => {
+      disabled = true; // 첫 호출에서 바로 차단기가 트립됐다고 가정한다.
+    });
+    const enricher = { enrich, stats: () => ({ ...EMPTY_STATS, disabled }) } as Enricher;
+    const result = await enrichBacklog(fakePg(), enricher, 100);
+    expect(enrich).toHaveBeenCalledTimes(1);
+    expect(result.processed).toBe(1);
+    expect(result.skipped).toBe(2);
   });
 
   it("enricher의 최종 stats를 반환한다", async () => {
