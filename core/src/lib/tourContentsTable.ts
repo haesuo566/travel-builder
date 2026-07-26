@@ -56,6 +56,32 @@ export async function createTourContentsTable(client: PoolClient): Promise<void>
     CREATE INDEX IF NOT EXISTS idx_tour_contents_pending
       ON tour_contents (contentid) WHERE detail_status = 'pending'
   `);
+  // 기존 테이블에는 CREATE TABLE IF NOT EXISTS가 no-op이라 신규 컬럼이 생기지 않는다.
+  // ADD COLUMN IF NOT EXISTS는 멱등이므로 신규 생성·기존 갱신 양쪽을 이 한 곳에서 처리한다.
+  await client.query(`
+    ALTER TABLE tour_contents
+      ADD COLUMN IF NOT EXISTS structured_text         TEXT,
+      ADD COLUMN IF NOT EXISTS structure_status        TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS structure_attempt_count INT  NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS structure_last_error    TEXT,
+      ADD COLUMN IF NOT EXISTS structured_at           TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS embed_status            TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS embed_attempt_count     INT  NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS embed_last_error        TEXT,
+      ADD COLUMN IF NOT EXISTS embedded_at             TIMESTAMPTZ
+  `);
+  // 인덱스 조건이 스테이지 진행 순서를 조회 수준에서 강제한다 —
+  // 구조화되지 않은 항목은 임베딩 대상이 될 수 없다.
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_tour_contents_structure_pending
+      ON tour_contents (contentid)
+      WHERE detail_status = 'done' AND structure_status = 'pending'
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_tour_contents_embed_pending
+      ON tour_contents (contentid)
+      WHERE structure_status = 'done' AND embed_status = 'pending'
+  `);
 }
 
 const INSERT_SQL = `

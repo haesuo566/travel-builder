@@ -50,6 +50,40 @@ describe("createTourContentsTable", () => {
     expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_tour_contents_pending");
     expect(sql).toContain("WHERE detail_status = 'pending'");
   });
+
+  it("스테이지 컬럼을 ALTER TABLE로 멱등하게 추가한다", async () => {
+    // CREATE TABLE IF NOT EXISTS는 테이블이 이미 있으면 통째로 no-op이므로
+    // 신규 컬럼이 생기지 않는다. ALTER가 반드시 있어야 한다.
+    const { client, queryMock } = fakeClient();
+    await createTourContentsTable(client);
+    const sql = queryMock.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(sql).toContain("ALTER TABLE tour_contents");
+    for (const col of [
+      "structured_text",
+      "structure_status",
+      "structure_attempt_count",
+      "structure_last_error",
+      "structured_at",
+      "embed_status",
+      "embed_attempt_count",
+      "embed_last_error",
+      "embedded_at",
+    ]) {
+      expect(sql).toContain(`ADD COLUMN IF NOT EXISTS ${col}`);
+    }
+    expect(sql).toMatch(/structure_status\s+TEXT NOT NULL DEFAULT 'pending'/);
+    expect(sql).toMatch(/embed_status\s+TEXT NOT NULL DEFAULT 'pending'/);
+  });
+
+  it("스테이지별 부분 인덱스를 만들고 진행 순서를 조건에 담는다", async () => {
+    const { client, queryMock } = fakeClient();
+    await createTourContentsTable(client);
+    const sql = queryMock.mock.calls.map((c) => c[0] as string).join("\n");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_tour_contents_structure_pending");
+    expect(sql).toContain("WHERE detail_status = 'done' AND structure_status = 'pending'");
+    expect(sql).toContain("CREATE INDEX IF NOT EXISTS idx_tour_contents_embed_pending");
+    expect(sql).toContain("WHERE structure_status = 'done' AND embed_status = 'pending'");
+  });
 });
 
 describe("upsertListedContents", () => {
