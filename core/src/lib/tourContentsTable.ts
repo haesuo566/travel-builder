@@ -315,3 +315,139 @@ export async function fetchEnrichInput(
     signguNm: r.signgu_nm,
   };
 }
+
+/** 구조화·임베딩 스테이지의 상태. nodata는 상세 단계 고유 개념이라 쓰지 않는다. */
+export type StageStatus = "pending" | "done" | "failed";
+
+/** 구조화 성공을 기록한다. */
+export async function markStructureDone(
+  pg: PostgresClient,
+  contentid: string,
+  text: string,
+): Promise<void> {
+  await pg.query(
+    `UPDATE tour_contents SET
+       structured_text      = $2,
+       structure_status     = 'done',
+       structure_last_error = NULL,
+       structured_at        = now()
+     WHERE contentid = $1`,
+    [contentid, text],
+  );
+}
+
+/** 구조화 실패를 기록한다. 증가와 전이를 단일 UPDATE로 처리해 경합을 없앤다. */
+export async function markStructureFailure(
+  pg: PostgresClient,
+  contentid: string,
+  error: string,
+  maxAttempts: number,
+): Promise<StageStatus> {
+  const result = await pg.query<{ structure_status: StageStatus }>(
+    `UPDATE tour_contents SET
+       structure_attempt_count = structure_attempt_count + 1,
+       structure_last_error    = $2,
+       structure_status        = CASE WHEN structure_attempt_count + 1 >= $3 THEN 'failed' ELSE 'pending' END
+     WHERE contentid = $1
+     RETURNING structure_status`,
+    [contentid, error, maxAttempts],
+  );
+  return result.rows[0]?.structure_status ?? "pending";
+}
+
+/** 임베딩 성공을 기록한다. */
+export async function markEmbedDone(pg: PostgresClient, contentid: string): Promise<void> {
+  await pg.query(
+    `UPDATE tour_contents SET
+       embed_status     = 'done',
+       embed_last_error = NULL,
+       embedded_at      = now()
+     WHERE contentid = $1`,
+    [contentid],
+  );
+}
+
+/** 임베딩 실패를 기록한다. */
+export async function markEmbedFailure(
+  pg: PostgresClient,
+  contentid: string,
+  error: string,
+  maxAttempts: number,
+): Promise<StageStatus> {
+  const result = await pg.query<{ embed_status: StageStatus }>(
+    `UPDATE tour_contents SET
+       embed_attempt_count = embed_attempt_count + 1,
+       embed_last_error    = $2,
+       embed_status        = CASE WHEN embed_attempt_count + 1 >= $3 THEN 'failed' ELSE 'pending' END
+     WHERE contentid = $1
+     RETURNING embed_status`,
+    [contentid, error, maxAttempts],
+  );
+  return result.rows[0]?.embed_status ?? "pending";
+}
+
+/** 구조화 대기 목록. 이 조회 자체가 남은 일 목록이자 재개 지점이다. */
+export async function claimStructurePending(
+  pg: PostgresClient,
+  limit: number,
+): Promise<string[]> {
+  const result = await pg.query<{ contentid: string }>(
+    `SELECT contentid FROM tour_contents
+      WHERE detail_status = 'done' AND structure_status = 'pending'
+      ORDER BY contentid
+      LIMIT $1`,
+    [limit],
+  );
+  return result.rows.map((r) => r.contentid);
+}
+
+/** 임베딩 대기 목록. */
+export async function claimEmbedPending(
+  pg: PostgresClient,
+  limit: number,
+): Promise<string[]> {
+  const result = await pg.query<{ contentid: string }>(
+    `SELECT contentid FROM tour_contents
+      WHERE structure_status = 'done' AND embed_status = 'pending'
+      ORDER BY contentid
+      LIMIT $1`,
+    [limit],
+  );
+  return result.rows.map((r) => r.contentid);
+}
+
+export interface StageCounts {
+  structure: Record<StageStatus, number>;
+  embed: Record<StageStatus, number>;
+}
+
+const EMPTY_STAGE_COUNTS = (): Record<StageStatus, number> => ({
+  pending: 0,
+  done: 0,
+  failed: 0,
+});
+
+/** 상세를 받아둔 행만 대상으로 두 스테이지의 상태별 건수를 센다. */
+export async function countStageStatus(pg: PostgresClient): Promise<StageCounts> {
+  const result = await pg.query<{
+    structure_status: StageStatus;
+    embed_status: StageStatus;
+    count: string | number;
+  }>(
+    `SELECT structure_status, embed_status, COUNT(*) AS count
+       FROM tour_contents
+      WHERE detail_status = 'done'
+      GROUP BY structure_status, embed_status`,
+  );
+  const counts: StageCounts = {
+    structure: EMPTY_STAGE_COUNTS(),
+    embed: EMPTY_STAGE_COUNTS(),
+  };
+  for (const row of result.rows) {
+    const n = Number(row.count);
+    // 알 수 없는 상태값이 들어와도 NaN으로 오염되지 않게 키 존재를 확인한다.
+    if (row.structure_status in counts.structure) counts.structure[row.structure_status] += n;
+    if (row.embed_status in counts.embed) counts.embed[row.embed_status] += n;
+  }
+  return counts;
+}
