@@ -217,6 +217,12 @@ export interface EnrichInput {
   overview: string;
   /** null = 아직 구조화되지 않음 */
   structuredText: string | null;
+  /**
+   * structure_status 컬럼 그대로. 재사용 분기(ensureStructuredText)가 이 값과 다른
+   * 진실을 보면(예: structuredText는 남아 있는데 status가 pending) 그 행은 claim
+   * 쿼리에서 영원히 빠지지 않는다 — 재사용 여부의 유일한 근거로 삼는다.
+   */
+  structureStatus: StageStatus;
   // payload 구성용 (원본 코드·좌표)
   contenttypeid: string;
   ldongRegnCd: string;
@@ -242,6 +248,7 @@ interface EnrichInputRow {
   addr2: string;
   overview: string | null;
   structured_text: string | null;
+  structure_status: StageStatus;
   contenttypeid: string;
   ldong_regn_cd: string;
   ldong_signgu_cd: string;
@@ -260,6 +267,7 @@ interface EnrichInputRow {
 
 const ENRICH_INPUT_SQL = `
   SELECT c.contentid, c.title, c.addr1, c.addr2, c.overview, c.structured_text,
+         c.structure_status,
          c.contenttypeid, c.ldong_regn_cd, c.ldong_signgu_cd,
          c.lcls_systm1, c.lcls_systm2, c.lcls_systm3, c.mapx, c.mapy,
          COALESCE(t.name, '')        AS content_type_nm,
@@ -299,6 +307,7 @@ export async function fetchEnrichInput(
     addr2: r.addr2,
     overview: r.overview ?? "",
     structuredText: r.structured_text,
+    structureStatus: r.structure_status,
     contenttypeid: r.contenttypeid,
     ldongRegnCd: r.ldong_regn_cd,
     ldongSignguCd: r.ldong_signgu_cd,

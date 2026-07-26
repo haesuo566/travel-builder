@@ -225,6 +225,7 @@ function enrichRow(overrides: Record<string, unknown> = {}) {
     addr2: "",
     overview: "조선 왕조의 법궁이다.",
     structured_text: null,
+    structure_status: "pending",
     contenttypeid: "12",
     ldong_regn_cd: "11",
     ldong_signgu_cd: "110",
@@ -253,6 +254,8 @@ describe("fetchEnrichInput", () => {
     expect(sql).toContain("LEFT JOIN tour_ldong_codes");
     expect(sql).toContain("COALESCE(t.name, '')");
     expect(sql).toContain("COALESCE(d.signgu_name, '')");
+    // structure_status를 함께 조회해야 재사용 분기가 claim 쿼리와 같은 진실을 본다 (Important 3).
+    expect(sql).toContain("c.structure_status");
     expect(params).toEqual(["126508"]);
   });
 
@@ -267,6 +270,7 @@ describe("fetchEnrichInput", () => {
       addr2: "",
       overview: "조선 왕조의 법궁이다.",
       structuredText: null,
+      structureStatus: "pending",
       contenttypeid: "12",
       ldongRegnCd: "11",
       ldongSignguCd: "110",
@@ -288,6 +292,13 @@ describe("fetchEnrichInput", () => {
     const { pg } = fakePg([enrichRow({ structured_text: "경복궁 — 고궁\n설명: ..." })]);
     const input = await fetchEnrichInput(pg, "126508");
     expect(input?.structuredText).toBe("경복궁 — 고궁\n설명: ...");
+  });
+
+  it("structure_status를 structureStatus로 그대로 담는다 (Important 3)", async () => {
+    // 재사용 분기가 claim 쿼리와 같은 진실을 보려면 이 값이 그대로 전달돼야 한다.
+    const { pg } = fakePg([enrichRow({ structure_status: "failed" })]);
+    const input = await fetchEnrichInput(pg, "126508");
+    expect(input?.structureStatus).toBe("failed");
   });
 
   it("overview가 NULL이면 빈 문자열로 정규화한다", async () => {

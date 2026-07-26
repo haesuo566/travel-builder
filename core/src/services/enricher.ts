@@ -162,7 +162,14 @@ export function createEnricher(
    */
   async function ensureStructuredText(input: EnrichInput): Promise<string | null> {
     if (input.structuredText !== null && input.structuredText !== "") {
-      return input.structuredText; // 이미 구조화됨 — Gemini 재호출 없음
+      if (input.structureStatus !== "done") {
+        // claim 쿼리(structure_status 기준)와 이 재사용 분기(structuredText 존재 여부 기준)가
+        // 서로 다른 진실을 보면, 텍스트는 있는데 status만 pending/failed인 행이 claimStructurePending에서
+        // 영원히 빠지지 않는다 — 매 실행이 Gemini 없이도 TEI·Qdrant를 다시 태우며 제자리걸음한다.
+        // 텍스트는 재사용하되 done 전이만 시켜 행을 수렴시킨다.
+        await markStructureDone(pg, input.contentid, input.structuredText);
+      }
+      return input.structuredText; // 이미 구조화됨(또는 방금 수렴) — Gemini 재호출 없음
     }
 
     if (needsFallback(input)) {

@@ -16,6 +16,7 @@ function input(overrides: Partial<EnrichInput> = {}): EnrichInput {
     addr2: "",
     overview: "조선 왕조의 법궁이다.",
     structuredText: null,
+    structureStatus: "pending",
     contenttypeid: "12",
     ldongRegnCd: "11",
     ldongSignguCd: "110",

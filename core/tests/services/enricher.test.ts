@@ -38,6 +38,7 @@ function input(overrides: Partial<EnrichInput> = {}): EnrichInput {
     addr2: "",
     overview: "조선 왕조의 법궁이다.",
     structuredText: null,
+    structureStatus: "pending",
     contenttypeid: "12",
     ldongRegnCd: "11",
     ldongSignguCd: "110",
@@ -171,13 +172,30 @@ describe("createEnricher 정상 경로", () => {
   });
 
   it("structuredText가 이미 있으면 Gemini를 호출하지 않고 임베딩만 한다", async () => {
-    mocked.fetchEnrichInput.mockResolvedValue(input({ structuredText: "기존 텍스트" }));
+    mocked.fetchEnrichInput.mockResolvedValue(
+      input({ structuredText: "기존 텍스트", structureStatus: "done" }),
+    );
     const { enricher, generate, embed } = harness();
     await enricher.enrich("126508");
     expect(generate).not.toHaveBeenCalled();
     expect(mocked.markStructureDone).not.toHaveBeenCalled();
     expect(embed).toHaveBeenCalledWith(["기존 텍스트"]);
     expect(enricher.stats()).toMatchObject({ structured: 0, embedded: 1 });
+  });
+
+  it("structuredText는 있지만 structure_status가 done이 아니면 재사용하되 done으로 수렴시킨다 (Important 3)", async () => {
+    // claim 쿼리는 structure_status만 보고, 이 재사용 분기는 (수정 전) structuredText만
+    // 봤다. 운영자가 재구조화를 의도하고 structure_status='pending'만 되돌리면(설계문서가
+    // 유도하는 그 SQL) 텍스트는 있는데 상태가 pending인 행이 생긴다 — status를 단일
+    // 진실로 삼아 Gemini 재호출 없이 done 전이만 시켜 그 행을 claim 목록에서 내보낸다.
+    mocked.fetchEnrichInput.mockResolvedValue(
+      input({ structuredText: "기존 텍스트", structureStatus: "pending" }),
+    );
+    const { enricher, generate, embed, pg } = harness();
+    await enricher.enrich("126508");
+    expect(generate).not.toHaveBeenCalled();
+    expect(mocked.markStructureDone).toHaveBeenCalledWith(pg, "126508", "기존 텍스트");
+    expect(embed).toHaveBeenCalledWith(["기존 텍스트"]);
   });
 
   it("overview가 비면 Gemini 없이 최소 텍스트로 임베딩한다", async () => {
@@ -341,7 +359,9 @@ describe("createEnricher Gemini 실패", () => {
     }
     expect(gen).toHaveBeenCalledTimes(3);
 
-    mocked.fetchEnrichInput.mockResolvedValue(input({ structuredText: "기존 텍스트" }));
+    mocked.fetchEnrichInput.mockResolvedValue(
+      input({ structuredText: "기존 텍스트", structureStatus: "done" }),
+    );
     await enricher.enrich("already-structured");
 
     expect(gen).toHaveBeenCalledTimes(3); // 쿼터 소진 이후로는 추가 호출 없음
@@ -406,7 +426,9 @@ describe("createEnricher 임베딩 실패", () => {
     // TEI/Qdrant 장애처럼 시스템 장애가 항목별 오류로 위장해 들어오면 claim한
     // 전량이 실패로 소진된다 — 구조화·임베딩 공유 카운터가 손상을 10건으로 묶는다.
     // structuredText를 이미 채워 구조화 성공이 카운터를 리셋하지 않게 한다.
-    mocked.fetchEnrichInput.mockResolvedValue(input({ structuredText: "기존 텍스트" }));
+    mocked.fetchEnrichInput.mockResolvedValue(
+      input({ structuredText: "기존 텍스트", structureStatus: "done" }),
+    );
     const embed = vi.fn().mockRejectedValue(new Error("TEI 502"));
     const { enricher } = harness({ embed });
     for (let i = 0; i < 15; i += 1) {
@@ -444,7 +466,7 @@ describe("createEnricher 임베딩 실패", () => {
     // 실패 9 → 성공 1 → 실패 9: 연속 10회에 도달하지 않아 19회 모두 호출된다.
     for (let i = 0; i < 19; i += 1) {
       mocked.fetchEnrichInput.mockResolvedValue(
-        input({ structuredText: i === 9 ? "성공" : `실패${i}` }),
+        input({ structuredText: i === 9 ? "성공" : `실패${i}`, structureStatus: "done" }),
       );
       await enricher.enrich(String(i));
     }
