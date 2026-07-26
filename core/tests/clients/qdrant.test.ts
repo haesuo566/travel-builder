@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const {
   getCollectionsMock,
+  getCollectionMock,
   createCollectionMock,
   deleteCollectionMock,
   upsertMock,
@@ -10,6 +11,7 @@ const {
   QdrantClientMock,
 } = vi.hoisted(() => {
   const getCollectionsMock = vi.fn();
+  const getCollectionMock = vi.fn();
   const createCollectionMock = vi.fn();
   const deleteCollectionMock = vi.fn();
   const upsertMock = vi.fn();
@@ -17,6 +19,7 @@ const {
   const deleteMock = vi.fn();
   const QdrantClientMock = vi.fn(() => ({
     getCollections: getCollectionsMock,
+    getCollection: getCollectionMock,
     createCollection: createCollectionMock,
     deleteCollection: deleteCollectionMock,
     upsert: upsertMock,
@@ -25,6 +28,7 @@ const {
   }));
   return {
     getCollectionsMock,
+    getCollectionMock,
     createCollectionMock,
     deleteCollectionMock,
     upsertMock,
@@ -42,6 +46,7 @@ import { QdrantStore } from "../../src/clients/qdrant.js";
 
 beforeEach(() => {
   getCollectionsMock.mockReset().mockResolvedValue({ collections: [] });
+  getCollectionMock.mockReset();
   createCollectionMock.mockReset().mockResolvedValue(true);
   deleteCollectionMock.mockReset().mockResolvedValue(true);
   upsertMock.mockReset().mockResolvedValue({ status: "completed" });
@@ -140,5 +145,43 @@ describe("QdrantStore", () => {
     await store.connect();
     await store.deletePoints("col", [1, 2]);
     expect(deleteMock).toHaveBeenCalledWith("col", { wait: true, points: [1, 2] });
+  });
+
+  it("getCollectionInfo가 벡터 차원을 반환한다", async () => {
+    getCollectionMock.mockResolvedValue({
+      config: { params: { vectors: { size: 1024, distance: "Cosine" } } },
+    });
+    const store = new QdrantStore();
+    await store.connect();
+    expect(await store.getCollectionInfo("col")).toEqual({ vectorSize: 1024 });
+    expect(getCollectionMock).toHaveBeenCalledWith("col");
+  });
+
+  it("컬렉션이 없으면(404) null을 반환한다", async () => {
+    getCollectionMock.mockRejectedValue(Object.assign(new Error("Not found"), { status: 404 }));
+    const store = new QdrantStore();
+    await store.connect();
+    expect(await store.getCollectionInfo("없는컬렉션")).toBeNull();
+  });
+
+  it("404가 아닌 에러는 전파한다", async () => {
+    // 연결 장애를 "컬렉션 없음"으로 오분류하면, 기존 컬렉션 위에
+    // 다른 차원으로 재생성을 시도하게 된다.
+    getCollectionMock.mockRejectedValue(Object.assign(new Error("ECONNREFUSED"), { status: 500 }));
+    const store = new QdrantStore();
+    await store.connect();
+    await expect(store.getCollectionInfo("col")).rejects.toThrow("ECONNREFUSED");
+  });
+
+  it("차원을 읽을 수 없는 응답이면 throw", async () => {
+    getCollectionMock.mockResolvedValue({ config: { params: {} } });
+    const store = new QdrantStore();
+    await store.connect();
+    await expect(store.getCollectionInfo("col")).rejects.toThrow("벡터 크기");
+  });
+
+  it("connect 전 getCollectionInfo 호출 시 throw", async () => {
+    const store = new QdrantStore();
+    await expect(store.getCollectionInfo("col")).rejects.toThrow("연결");
   });
 });
