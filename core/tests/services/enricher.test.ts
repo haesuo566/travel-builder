@@ -457,6 +457,23 @@ describe("createEnricher 임베딩 실패", () => {
     expect(enricher.stats().disabled).toBe(true);
   });
 
+  it("인라인 경로: overview가 비어 폴백 텍스트로 처리해도 임베딩만 실패하면 차단기가 작동한다 (Important 1-폴백)", async () => {
+    // needsFallback 분기(overview 공백)도 buildMinimalText로 매번 구조화를 "성공"시킨다.
+    // 이 성공에서 consecutiveFailures를 리셋하면 위 Gemini 버전과 똑같은 구멍이
+    // overview가 빈 항목들로만 이루어진 코퍼스에서 재현된다 — 매번 새 입력을 준다.
+    const embed = vi.fn().mockRejectedValue(new Error("TEI 502"));
+    const { enricher } = harness({ embed });
+    for (let i = 0; i < 15; i += 1) {
+      mocked.fetchEnrichInput.mockResolvedValue(
+        input({ contentid: String(i), overview: "   " }),
+      );
+      await enricher.enrich(String(i));
+    }
+    expect(embed).toHaveBeenCalledTimes(10);
+    expect(mocked.markEmbedFailure).toHaveBeenCalledTimes(10);
+    expect(enricher.stats().disabled).toBe(true);
+  });
+
   it("임베딩 성공은 연속 실패 카운터를 초기화한다 (F3)", async () => {
     const embed = vi.fn(async (texts: string[]) => {
       if (texts[0]?.includes("성공")) return [VECTOR];

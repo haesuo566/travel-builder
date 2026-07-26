@@ -713,7 +713,10 @@ Qdrant point ── markEmbedDone ★커밋
 - **`tb embed-contents` 별도 커맨드** — `enricher`/`enrichBacklog`가 독립 서비스라 나중에 배선만 추가하면 노출된다.
 - **`firstimage`·`tel`·`homepage` 적재** — `areaBasedSyncList2`가 이미 내려주는데 projection에서 버렸다(`tour-info-ingest-design.md:53`). 필요해지면 `collect-list` projection에 추가해 **API 호출 0회로** 얻는다. detailCommon2를 기다릴 필요가 없다.
 - **`detailIntro2`·`detailInfo2`·`detailImage2`** — `overview`만 쓴다.
-- **`modifiedtime` 변경 감지 재구조화** — 원문이 갱신돼도 자동 재구조화하지 않는다. 필요 시 수동 `UPDATE`.
+- **`modifiedtime` 변경 감지 재구조화** — 원문이 갱신돼도 자동 재구조화하지 않는다. 필요 시 수동 `UPDATE`:
+  `UPDATE tour_contents SET structured_text = NULL, structure_status = 'pending' WHERE contentid = ...`.
+  `structure_status`만 되돌리면 재사용 분기가 남아 있는 (구) `structured_text`를 그대로
+  `done`으로 수렴시켜버려 Gemini를 다시 부르지 않는다 — 반드시 두 컬럼을 함께 되돌린다.
 - **Qdrant payload 전체 복제** — PG가 원본 진실. 필터 키 + 표시 필드만 둔다.
 - **스케줄러·동시 실행 방지(advisory lock)** — 수동 실행 전제.
 - **마이그레이션 프레임워크** — 커맨드 내 `CREATE TABLE` / `ALTER TABLE IF NOT EXISTS`.
