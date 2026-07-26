@@ -10,6 +10,7 @@ import {
   markDetailNodata,
 } from "../lib/tourContentsTable.js";
 import { logger } from "../lib/logger.js";
+import type { Enricher, EnrichStats } from "./enricher.js";
 
 const DEFAULT_DAILY_LIMIT = 900;
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -33,6 +34,8 @@ export interface CollectDetailResult {
   failed: number;
   stoppedBy: "budget" | "quota-exceeded" | "aborted" | "no-pending";
   remainingPending: number;
+  /** enricher를 넘긴 경우의 구조화·임베딩 집계. */
+  enrichStats?: EnrichStats;
 }
 
 /**
@@ -45,6 +48,7 @@ export async function collectDetail(
   tourApi: TourApiClient,
   pg: PostgresClient,
   opts: CollectDetailOptions = {},
+  enricher?: Enricher,
 ): Promise<CollectDetailResult> {
   const dailyLimit = opts.dailyLimit ?? DEFAULT_DAILY_LIMIT;
   const maxAttempts = opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
@@ -113,6 +117,11 @@ export async function collectDetail(
     done += 1;
     consecutiveFailures = 0;
     processed += 1;
+
+    // 상세 저장을 커밋한 뒤에 구조화·임베딩을 수행한다 — 이 시점에 TourAPI 호출은
+    // 이미 영구 보존됐으므로 아래에서 무엇이 실패해도 소비한 쿼터를 잃지 않는다.
+    // enricher는 DB 쓰기 실패만 던지며, 그 경우 계속할 수 없으니 전파한다.
+    await enricher?.enrich(contentid);
   }
 
   // 예산을 다 쓰지 않고 끝났다면 남은 pending이 없어서 끝난 것이다.
@@ -129,5 +138,6 @@ export async function collectDetail(
     failed,
     stoppedBy,
     remainingPending: after.pending,
+    enrichStats: enricher?.stats(),
   };
 }

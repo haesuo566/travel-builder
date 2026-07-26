@@ -5,6 +5,7 @@ import type { TourApiClient } from "../../src/clients/tourApi.js";
 import type { PostgresClient } from "../../src/clients/postgres.js";
 import * as table from "../../src/lib/tourContentsTable.js";
 import { logger } from "../../src/lib/logger.js";
+import type { Enricher, EnrichStats } from "../../src/services/enricher.js";
 
 vi.mock("../../src/lib/logger.js", () => ({
   logger: { info: vi.fn(), error: vi.fn() },
@@ -256,5 +257,102 @@ describe("collectDetail", () => {
       "DB 쓰기 실패",
     );
     expect(mocked.markDetailFailure).not.toHaveBeenCalled();
+  });
+
+  const EMPTY_STATS: EnrichStats = {
+    structured: 0,
+    fallback: 0,
+    structureRetry: 0,
+    structureFailed: 0,
+    embedded: 0,
+    embedRetry: 0,
+    embedFailed: 0,
+    geminiRateLimited: 0,
+    disabled: false,
+  };
+
+  function fakeEnricher(stats: EnrichStats = EMPTY_STATS) {
+    const enrich = vi.fn().mockResolvedValue(undefined);
+    return { enricher: { enrich, stats: () => stats } as Enricher, enrich };
+  }
+
+  it("상세 저장 직후 enrich를 호출한다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["1", "2"]);
+    const getDetailCommon = vi.fn(async (id: string) => ({ contentid: id, overview: "x" }));
+    const { enricher, enrich } = fakeEnricher();
+    await collectDetail(fakeApi(getDetailCommon), fakePg(), {}, enricher);
+    expect(enrich.mock.calls.map((c) => c[0])).toEqual(["1", "2"]);
+  });
+
+  it("markDetailDone이 커밋된 뒤에 enrich를 호출한다", async () => {
+    // 커밋 순서가 뒤바뀌면 enrich 실패가 이미 소비한 TourAPI 쿼터를 날린다.
+    mocked.claimPendingContents.mockResolvedValue(["1"]);
+    const order: string[] = [];
+    mocked.markDetailDone.mockImplementation(async () => {
+      order.push("markDetailDone");
+    });
+    const enrich = vi.fn(async () => {
+      order.push("enrich");
+    });
+    const getDetailCommon = vi.fn().mockResolvedValue({ contentid: "1", overview: "x" });
+    await collectDetail(fakeApi(getDetailCommon), fakePg(), {}, {
+      enrich,
+      stats: () => EMPTY_STATS,
+    } as Enricher);
+    expect(order).toEqual(["markDetailDone", "enrich"]);
+  });
+
+  it("NODATA 항목에는 enrich를 호출하지 않는다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["999"]);
+    const getDetailCommon = vi.fn().mockRejectedValue(new TourApiError("03", "NODATA_ERROR"));
+    const { enricher, enrich } = fakeEnricher();
+    await collectDetail(fakeApi(getDetailCommon), fakePg(), {}, enricher);
+    expect(enrich).not.toHaveBeenCalled();
+  });
+
+  it("한도 초과로 중단되면 enrich를 호출하지 않는다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["1"]);
+    const getDetailCommon = vi.fn().mockRejectedValue(new TourApiError("22", "LIMITED"));
+    const { enricher, enrich } = fakeEnricher();
+    await collectDetail(fakeApi(getDetailCommon), fakePg(), {}, enricher);
+    expect(enrich).not.toHaveBeenCalled();
+  });
+
+  it("일반 오류 항목에는 enrich를 호출하지 않는다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["1"]);
+    const getDetailCommon = vi.fn().mockRejectedValue(new Error("ECONNRESET"));
+    const { enricher, enrich } = fakeEnricher();
+    await collectDetail(fakeApi(getDetailCommon), fakePg(), {}, enricher);
+    expect(enrich).not.toHaveBeenCalled();
+  });
+
+  it("enricher의 stats를 결과에 담는다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["1"]);
+    const stats: EnrichStats = { ...EMPTY_STATS, structured: 1, embedded: 1 };
+    const getDetailCommon = vi.fn().mockResolvedValue({ contentid: "1", overview: "x" });
+    const { enricher } = fakeEnricher(stats);
+    const result = await collectDetail(fakeApi(getDetailCommon), fakePg(), {}, enricher);
+    expect(result.enrichStats).toEqual(stats);
+  });
+
+  it("enricher를 넘기지 않으면 enrichStats가 undefined다", async () => {
+    mocked.claimPendingContents.mockResolvedValue(["1"]);
+    const getDetailCommon = vi.fn().mockResolvedValue({ contentid: "1", overview: "x" });
+    const result = await collectDetail(fakeApi(getDetailCommon), fakePg());
+    expect(result.enrichStats).toBeUndefined();
+  });
+
+  it("enrich가 throw하면 전파해 실행을 중단한다", async () => {
+    // enricher는 DB 쓰기 실패만 던진다. DB가 죽었으면 계속할 수 없다.
+    mocked.claimPendingContents.mockResolvedValue(["1", "2"]);
+    const enrich = vi.fn().mockRejectedValue(new Error("DB 쓰기 실패"));
+    const getDetailCommon = vi.fn().mockResolvedValue({ contentid: "1", overview: "x" });
+    await expect(
+      collectDetail(fakeApi(getDetailCommon), fakePg(), {}, {
+        enrich,
+        stats: () => EMPTY_STATS,
+      } as Enricher),
+    ).rejects.toThrow("DB 쓰기 실패");
+    expect(getDetailCommon).toHaveBeenCalledTimes(1);
   });
 });
