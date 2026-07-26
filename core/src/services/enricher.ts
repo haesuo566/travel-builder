@@ -114,7 +114,13 @@ export function createEnricher(
     geminiRateLimited: 0,
     disabled: false,
   };
-  /** 구조화·임베딩 두 단계가 공유하는 카운터 — 시스템 장애가 항목별 오류로 위장하는 것을 막는다. */
+  /**
+   * 구조화·임베딩 두 단계가 공유하는 카운터 — 시스템 장애가 항목별 오류로 위장하는 것을 막는다.
+   * 완전히 성공한 항목(임베딩까지 끝난 항목)에서만 리셋한다(markEmbedDone 뒤). 구조화만
+   * 성공하고 임베딩이 아직 안 끝난 시점에 리셋하면, 인라인 경로(매 행이 structuredText: null로
+   * 도착)에서 TEI/Qdrant 장애가 나도 다음 행의 구조화 성공이 즉시 값을 되돌려 차단기가
+   * 절대 트립되지 않는다.
+   */
   let consecutiveFailures = 0;
   /** Gemini 쿼터에 연속으로 걸린 횟수. 문턱에 이르면 geminiQuotaExhausted를 켠다. */
   let consecutiveRateLimits = 0;
@@ -165,7 +171,6 @@ export function createEnricher(
       await markStructureDone(pg, input.contentid, text);
       stats.fallback += 1;
       stats.structured += 1;
-      consecutiveFailures = 0;
       return text;
     }
 
@@ -212,7 +217,6 @@ export function createEnricher(
 
     await markStructureDone(pg, input.contentid, text);
     stats.structured += 1;
-    consecutiveFailures = 0;
     return text;
   }
 

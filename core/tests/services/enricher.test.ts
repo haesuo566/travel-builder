@@ -418,6 +418,23 @@ describe("createEnricher 임베딩 실패", () => {
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(expect.stringContaining("연속"));
   });
 
+  it("인라인 경로: 구조화는 매번 성공하고 임베딩만 실패해도 차단기가 작동한다 (Important 1)", async () => {
+    // 인라인 경로(collectDetail 훅)에서는 모든 행이 structuredText: null로 도착한다.
+    // 구조화 성공이 consecutiveFailures를 리셋해버리면, TEI/Qdrant 장애로 매 항목의
+    // 임베딩이 실패해도 다음 항목의 구조화 성공이 그 값을 즉시 0으로 되돌려
+    // 차단기가 10에 영원히 도달하지 못한다. 기존 F3 테스트(위)는 structuredText를
+    // 미리 채워 구조화를 건너뛰므로 이 구멍을 잡지 못한다 — 매번 새 입력을 준다.
+    const embed = vi.fn().mockRejectedValue(new Error("TEI 502"));
+    const { enricher } = harness({ embed });
+    for (let i = 0; i < 15; i += 1) {
+      mocked.fetchEnrichInput.mockResolvedValue(input({ contentid: String(i) }));
+      await enricher.enrich(String(i));
+    }
+    expect(embed).toHaveBeenCalledTimes(10);
+    expect(mocked.markEmbedFailure).toHaveBeenCalledTimes(10);
+    expect(enricher.stats().disabled).toBe(true);
+  });
+
   it("임베딩 성공은 연속 실패 카운터를 초기화한다 (F3)", async () => {
     const embed = vi.fn(async (texts: string[]) => {
       if (texts[0]?.includes("성공")) return [VECTOR];
