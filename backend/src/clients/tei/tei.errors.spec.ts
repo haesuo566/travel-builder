@@ -93,7 +93,10 @@ describe('classifyTeiFailure', () => {
     expect(classifyTeiFailure(new TeiHttpError(500, ''))).toBe('upstream');
     expect(
       classifyTeiFailure(
-        new TeiHttpError(500, '{"error":"token count (1429852) exceeds limit"}'),
+        new TeiHttpError(
+          500,
+          '{"error":"token count (1429852) exceeds limit"}',
+        ),
       ),
     ).toBe('upstream');
     expect(
