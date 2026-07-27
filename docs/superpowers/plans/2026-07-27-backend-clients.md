@@ -2811,7 +2811,15 @@ AppModule에 배선하지 않는 이유는 소비자가 없어서다. 지금 넣
 >
 > `TeiHttpError`를 `tei.errors.ts`에 두는 이유: 던지는 쪽과 판정하는 쪽이 같은 타입을 봐야 하고, 판정 규칙 옆에 있어야 상태 코드 목록과 타입이 함께 바뀐다. **`bodySnippet`은 로그용이며 분류에 쓰지 않는다** — TEI는 상태 코드만으로 판정이 결정된다.
 
-- [ ] **Step 1: 구조 검증의 기준점을 표시**
+> **[갱신 2026-07-28 — 404는 `not-found`다]** 아래 Step 2·4의 코드는 404를 `upstream`으로 둔다. 리뷰 지적(`review-CD.md` "[Minor] TEI 404가 upstream(502)이다")에 따라 spec이 정정됐다 — **404 → `not-found`(500)**. 근거는 spec의 "404를 `not-found`(500)로 끊는다" 절: 경로와 바디가 코드에 고정돼 있어 404는 요청 내용과 무관하게 불변이므로 책임이 워크로드가 아니라 `TEI_BASE_URL` 설정에 있고, `:628`의 원칙(오설정은 서비스가 달라도 같은 kind)이 그대로 적용된다. 공통 파일은 바뀌지 않는다.
+>
+> Task 10은 이미 커밋됐으므로 아래 Step을 되돌리지 않고 **후속 수정으로 처리한다.** 바뀔 곳은 두 군데다:
+> - `tei.errors.ts`의 `classifyByStatus` 맨 앞에 `if (status === 404) return 'not-found';` 한 줄 (주석: 엔드포인트 경로 오설정 — 우리 `.env`의 문제다)
+> - `tei.errors.spec.ts`의 `'분류되지 않은 비-2xx는 upstream이다'`를 **418만 남기고**, 404를 `'404는 not-found다 — 엔드포인트 경로 오설정'` 케이스로 분리. 지금 이 테스트가 틀린 결정을 못 박고 있으므로 케이스를 쪼개지 않으면 수정이 실패로 잡힌다. 두 케이스를 나란히 두는 것이 spec의 `test-asymmetry` 짝(404=우리 설정 ↔ 그 외 비-2xx=외부)이다.
+>
+> **401/403은 건드리지 않는다.** TEI에 자격증명이 없으므로 `auth`로 청구할 우리 설정이 없다 — "그 외 비-2xx"로 남긴다(spec 같은 절 참조).
+
+- [x] **Step 1: 구조 검증의 기준점을 표시**
 
 TEI 태스크 두 개(10·11)의 커밋 diff가 구조 검증의 증거다. 시작 지점을 남긴다.
 
@@ -2822,7 +2830,7 @@ git rev-parse --short tei-base
 
 Task 11의 마지막에 이 태그로 diff를 뜨고 태그를 지운다.
 
-- [ ] **Step 2: 실패하는 테스트 작성**
+- [x] **Step 2: 실패하는 테스트 작성**
 
 `backend/src/clients/tei/tei.errors.spec.ts` 신규 파일 전문:
 
@@ -2927,7 +2935,7 @@ describe('classifyTeiFailure', () => {
 });
 ```
 
-- [ ] **Step 3: 실패를 확인**
+- [x] **Step 3: 실패를 확인**
 
 ```
 npm test -- src/clients/tei/tei.errors.spec.ts
@@ -2935,7 +2943,7 @@ npm test -- src/clients/tei/tei.errors.spec.ts
 
 Expected: FAIL — `Cannot find module './tei.errors' from 'src/clients/tei/tei.errors.spec.ts'`
 
-- [ ] **Step 4: 구현**
+- [x] **Step 4: 구현**
 
 `backend/src/clients/tei/tei.errors.ts` 신규 파일 전문:
 
@@ -3018,7 +3026,7 @@ export function classifyTeiFailure(
 }
 ```
 
-- [ ] **Step 5: 통과를 확인**
+- [x] **Step 5: 통과를 확인**
 
 ```
 npm test
@@ -3028,7 +3036,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add backend/src/clients/tei/tei.errors.ts backend/src/clients/tei/tei.errors.spec.ts
@@ -3082,7 +3090,7 @@ TeiClient.embedQuery(text)
    })
 ```
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/tei/tei.client.spec.ts` 신규 파일 전문:
 
@@ -3307,7 +3315,7 @@ describe('TeiClient.embedQuery', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/tei/tei.client.spec.ts
@@ -3315,7 +3323,7 @@ npm test -- src/clients/tei/tei.client.spec.ts
 
 Expected: FAIL — `Cannot find module './tei.client' from 'src/clients/tei/tei.client.spec.ts'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `backend/src/clients/external-service.error.ts` — **`ExternalService` 유니온 한 줄만 바꾼다.** 교체 전:
 
@@ -3466,7 +3474,17 @@ import { TeiClient } from './tei/tei.client';
 export class ClientsModule {}
 ```
 
-`backend/src/clients/clients.module.spec.ts` 교체 후 전문:
+> **[구현 이탈 — `a7c8336`]** 아래 "교체 후 전문"으로 파일을 덮지 않았다. Task 9 실행 시점(`9c35b96`)에
+> export 검증·비전역 검증·필수 env 검증 테스트 3건이 이미 추가돼 있었는데(문서화되지 않은 이탈 —
+> `10e17b0`이 기록한 Task 6·7·8의 이탈 3건에는 이게 없다), 이 계획 블록은 Task 9의 계획 시점(단일
+> 테스트) 기준이라 그대로 덮으면 그 3건이 사라진다. Files 절의 실제 의도는 "TEI 단정 추가"이지
+> 전체 교체가 아니므로, 기존 4개 테스트 구조를 보존하고 `ENV`에 `TEI_BASE_URL`을 더한 뒤 1번(전체 해석)·
+> 2번(export) 테스트에만 `TeiClient` 단정을 얹었다. 3번(비전역)·4번(필수 env) 테스트는 원래도
+> `GeminiClient` 하나로 모듈 단위 동작을 검증하므로 변경하지 않았다.
+>
+> 아래 코드 블록은 Task 9의 원안 그대로이며 **참고용**이다 — 실제 파일은 이 블록이 아니라 위 설명대로다.
+
+`backend/src/clients/clients.module.spec.ts` 교체 후 전문 (Task 9 원안 — 참고용, 실제 파일과 다름):
 
 ```ts
 import { ConfigModule } from '@nestjs/config';
@@ -3509,7 +3527,7 @@ describe('ClientsModule', () => {
 });
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -3519,7 +3537,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 5: 구조 검증 — 공통 파일 변경 범위를 diff로 확인**
+- [x] **Step 5: 구조 검증 — 공통 파일 변경 범위를 diff로 확인**
 
 **이 Step이 이 태스크의 산출물이다.** 코드가 아니라 판정을 만든다. `reviewer-A-contract`가 묶음 A 시점에 이미 실험으로 확인해 뒀다 — `ExternalService`에 `| 'tei'` 한 줄만 더하고 다른 공통 파일을 건드리지 않아도 `npx tsc --noEmit` **EXIT 0**, `npm test` **PASS**다. 즉 **아래 기대는 "그렇게 되면 좋겠다"가 아니라 이미 성립이 확인된 사실**이고, 어긋난다면 이 태스크의 구현이 불필요한 것을 건드렸다는 뜻이다.
 
@@ -3550,7 +3568,7 @@ Expected — **아래와 정확히 일치해야 한다.**
 git tag -d tei-base
 ```
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add backend/src/clients/tei/tei.client.ts backend/src/clients/tei/tei.client.spec.ts backend/src/clients/external-service.error.ts backend/src/clients/clients.module.ts backend/src/clients/clients.module.spec.ts
@@ -3612,7 +3630,7 @@ response.ok 확인이 설계상 필수가 됐다 — 빼면 분류기에 도달�
 - Consumes: Task 3의 `ExternalServiceFilter`
 - Produces: `validateEnv(config)` — 필수 4키 일괄 검증 · `configureApp(app: INestApplication): void` · `AppModule`이 부팅 시 env 검증
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/config/env.validation.spec.ts` 신규 파일 전문:
 
@@ -3700,7 +3718,7 @@ describe('validateEnv', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/config/env.validation.spec.ts
@@ -3708,7 +3726,7 @@ npm test -- src/config/env.validation.spec.ts
 
 Expected: FAIL — `TEI_BASE_URL 하나만 없어도 throw한다` 등 4건 실패. 현행 `validateEnv`는 `DATABASE_URL`만 본다.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `backend/src/config/env.validation.ts` 교체 후 전문:
 
@@ -3837,7 +3855,7 @@ PORT=3001
 NODE_ENV=development
 ```
 
-- [ ] **Step 4: 통과를 확인 (env 부분)**
+- [x] **Step 4: 통과를 확인 (env 부분)**
 
 ```
 npm test
@@ -3847,7 +3865,7 @@ npx tsc --noEmit -p tsconfig.json
 
 Expected: PASS 전부. **e2e의 `/ (GET)`이 200을 유지해야 한다** — `setupFiles`가 붙지 않았거나 더미 값이 부족하면 `환경 변수 ...가 설정되지 않았습니다.`로 부팅 단계에서 죽는다.
 
-- [ ] **Step 5: F-5 — 배선을 태우는 e2e 작성**
+- [x] **Step 5: F-5 — 배선을 태우는 e2e 작성**
 
 `backend/test/external-service.e2e-spec.ts` 신규 파일 전문:
 
@@ -3936,7 +3954,7 @@ describe('configureApp 전역 배선 (e2e)', () => {
 });
 ```
 
-- [ ] **Step 6: F-5 실패를 확인**
+- [x] **Step 6: F-5 실패를 확인**
 
 ```
 npm run test:e2e
@@ -3944,7 +3962,7 @@ npm run test:e2e
 
 Expected: FAIL — `Cannot find module './../src/app.setup' from 'test/external-service.e2e-spec.ts'`
 
-- [ ] **Step 7: F-5 구현 — 전역 설정을 공유 함수로 추출**
+- [x] **Step 7: F-5 구현 — 전역 설정을 공유 함수로 추출**
 
 `backend/src/app.setup.ts` 신규 파일 전문:
 
@@ -3991,7 +4009,7 @@ async function bootstrap() {
 void bootstrap();
 ```
 
-- [ ] **Step 8: 통과를 확인 + F-5 뮤테이션 검증**
+- [x] **Step 8: 통과를 확인 + F-5 뮤테이션 검증**
 
 ```
 npm test
@@ -4021,7 +4039,7 @@ Expected — **두 번 다 FAIL이어야 한다.**
 
 한쪽이라도 통과하면 그 배선은 여전히 감시되지 않는 것이니 원인을 찾는다. **확인 후 반드시 원복하고 다시 PASS를 확인한다.**
 
-- [ ] **Step 9: 커밋**
+- [x] **Step 9: 커밋**
 
 워크스페이스가 같으므로 한 커밋이지만, 관심사가 둘(env 검증 · 전역 배선)이라 본문에서 나눠 적는다.
 
@@ -4069,7 +4087,7 @@ bootstrap()을 거치지 않고 단위 spec은 ArgumentsHost를 위조하므로,
 >
 > 지금은 frontend에 소비자가 없어(contract 축 확인: `src` 전체 `fetch(` 0건) 충돌이 관측되지 않는다. **그래서 지금 표에 넣어야 한다** — 붙는 시점에는 이 사실을 아는 사람이 없다.
 
-- [ ] **Step 1: 현행을 확인**
+- [x] **Step 1: 현행을 확인**
 
 ```bash
 git diff --stat
@@ -4077,7 +4095,7 @@ git diff --stat
 
 `.claude/skills/tb-tdd-implement/references/workspaces.md`의 "워크스페이스 경계 — 바꿀 때 함께 봐야 하는 짝" 표(현재 5행)를 읽는다. 이 태스크는 문서 변경이라 자동 테스트가 없다 — 표의 마지막 행(`backend/.env.example` 행) **바로 아래**에 아래 6행을 추가한다.
 
-- [ ] **Step 2: 구현**
+- [x] **Step 2: 구현**
 
 `.claude/skills/tb-tdd-implement/references/workspaces.md`의
 
@@ -4096,7 +4114,7 @@ git diff --stat
 | `backend/src/clients/external-service.filter.ts`의 응답 본문(`error`=kind, `message`=고정 문구) | `frontend`의 에러 처리. 같은 API가 `ValidationPipe` 400도 내며 그쪽은 `error`="Bad Request", `message`=`string[]`다 — 두 shape을 함께 다뤄야 한다 |
 ```
 
-- [ ] **Step 3: 통과를 확인**
+- [x] **Step 3: 통과를 확인**
 
 표가 11행이 됐는지, 위 6행이 참조하는 파일이 **전부 실제로 존재하는지** 확인한다. 저장소 루트에서:
 
@@ -4107,7 +4125,7 @@ ls backend/src/clients/qdrant/tour-content-payload.ts backend/src/clients/tei/te
 
 Expected: 11개 경로 전부 존재. 하나라도 없으면 앞 태스크가 미완이다.
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add .claude/skills/tb-tdd-implement/references/workspaces.md
