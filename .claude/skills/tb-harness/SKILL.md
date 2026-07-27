@@ -1,6 +1,6 @@
 ---
 name: tb-harness
-description: travel-builder의 개발 파이프라인 오케스트레이터. plan(설계·계획) → work(TDD 구현) → review(정확성·계약·테스트품질 3축 병렬) → compound(학습 축적·하네스 갱신) 4단계를 전문 에이전트에게 분배해 조율한다. core/backend/frontend 어디든 기능 추가·변경·리팩터링·버그 수정 요청이 오면 반드시 이 스킬을 사용할 것. "이거 만들어줘", "기능 추가", "구현해줘", "고쳐줘", "리팩터링", "파이프라인 돌려줘" 같은 요청은 물론, "다시 실행", "재실행", "이어서 해줘", "리뷰만 다시", "계획만 수정", "이전 결과 기반으로 보완" 같은 후속 요청에도 이 스킬을 쓴다. 단순 질문·조회·설명 요청은 직접 답해도 된다.
+description: travel-builder의 개발 파이프라인 오케스트레이터. plan(설계·계획) → work(TDD 구현) → review(reviewer-lite 단일 패스 기본, 고위험/명시 요청 시 정확성·계약·테스트품질 3축 병렬) → compound(학습 축적·하네스 갱신) 4단계를 전문 에이전트에게 분배해 조율한다. core/backend/frontend 어디든 기능 추가·변경·리팩터링·버그 수정 요청이 오면 반드시 이 스킬을 사용할 것. "이거 만들어줘", "기능 추가", "구현해줘", "고쳐줘", "리팩터링", "파이프라인 돌려줘" 같은 요청은 물론, "다시 실행", "재실행", "이어서 해줘", "리뷰만 다시", "계획만 수정", "이전 결과 기반으로 보완" 같은 후속 요청에도 이 스킬을 쓴다. 단순 질문·조회·설명 요청은 직접 답해도 된다.
 ---
 
 # tb-harness — plan → work → review → compound
@@ -121,7 +121,7 @@ docs/superpowers/plans/{run-id}.md 를 작성하고,
 **전체를 다 만든 뒤 한 번에 리뷰하지 않는다.** 지적이 뭉쳐 나오고 되돌릴 거리가 멀어진다. 계획이 제안한 **리뷰 묶음마다** 다음 사이클을 돈다.
 
 ```
-묶음 A: work → review(3축 병렬) → 병합 → 수정 → 재검증 → 다음 묶음
+묶음 A: work → review(reviewer-lite) → 정리 → 수정 → 다음 묶음 (재검증 없음, 기본)
 묶음 B: work → review → ...
 ```
 
@@ -154,17 +154,17 @@ run-id: {run-id}
 
 묶음 시작 커밋 해시(`base`)를 기록해둔다. 리뷰 범위가 된다.
 
-### Phase 3: review — 3축 병렬
+### Phase 3: review — reviewer-lite 단일 패스 (기본, 2026-07-27부터)
 
-**세 개의 `Agent` 호출을 한 메시지에 함께 보낸다.** 그래야 동시에 돈다. 셋은 서로의 결과를 보지 않는다 — 독립성이 이 단계의 값어치다.
+**`Agent` 호출 하나면 된다.** 과거엔 correctness·contract·test 3축이 병렬로 돌며 spec·plan·learnings·diff를 각자 처음부터 읽었다 — 정확도는 높지만 같은 컨텍스트를 3번 중복 로딩하는 비용이 review 단계 시간·토큰의 대부분을 차지했다. `reviewer-lite`는 세 체크리스트를 한 패스에서 함께 보아 이 중복을 없앤다.
+
+**이것은 속도를 우선한 절충이며, 사용자가 버그 리스크 증가를 이미 승인했다.** 축 간 교차검증(서로 다른 눈으로 같은 코드를 봄)과 실행 기반 증명(임시 테스트·뮤테이션)과 재검증 사이클, 이 세 가지를 포기하고 review 비용을 약 80%+ 줄인다. 상세 트레이드오프는 `reviewer-lite` 에이전트 정의의 "이 모드가 놓칠 수 있는 것" 참조.
 
 ```
-Agent({ subagent_type: "reviewer-correctness", model: "opus", run_in_background: false, prompt: {아래 공통 프롬프트} })
-Agent({ subagent_type: "reviewer-contract",    model: "opus", run_in_background: false, prompt: {아래 공통 프롬프트} })
-Agent({ subagent_type: "reviewer-test",        model: "opus", run_in_background: false, prompt: {아래 공통 프롬프트} })
+Agent({ subagent_type: "reviewer-lite", model: "opus", run_in_background: false, prompt: {아래 프롬프트} })
 ```
 
-공통 프롬프트:
+프롬프트:
 
 ```
 리뷰 대상: git diff {base}..HEAD  (리뷰 묶음 {group}, Task {n}~{m})
@@ -175,20 +175,16 @@ run-id: {run-id}
 
 .claude/learnings/ 와 .claude/skills/tb-code-review/references/known-pitfalls.md 를 먼저 읽어라.
 모든 지적에 실패 시나리오를 붙여라 — 못 만들면 그 지적은 버려라.
-보고서를 .claude/_workspace/{run-id}/review-{group}-{axis}.md 에 쓰고,
+Critical·Major를 우선한다. 시간이 부족하면 Minor·Note는 생략해도 된다.
+보고서를 .claude/_workspace/{run-id}/review-{group}.md 에 쓰고,
 심각도별 건수와 제목 목록을 반환하라.
 ```
 
-`{axis}`는 호출하는 리뷰어에 맞춰 `correctness` / `contract` / `test`로 **치환해서 넘긴다.** 셋에게 같은 문자열을 그대로 주면 같은 파일을 덮어쓴다.
+**예외 — 3축 병렬로 전환하는 경우:** 결제·인증·삭제처럼 고위험 변경이거나, 사용자가 "전체 리뷰로", "꼼꼼하게 봐줘", "3축 다 돌려줘"라고 명시하면 이 Phase를 기존 방식(`reviewer-correctness`+`reviewer-contract`+`reviewer-test` 병렬, `tb-code-review`의 병합·재검증 규칙 그대로)으로 전환한다. 세 에이전트 정의는 삭제하지 않았으니 그대로 쓴다.
 
-### 3-1. 병합 — 오케스트레이터가 직접 한다
+### 3-1. 정리 — 오케스트레이터가 직접 한다
 
-세 보고서를 읽고 `.claude/_workspace/{run-id}/findings-{group}.md`를 만든다.
-
-- 같은 위치·같은 원인 → 하나로 합치고 **가장 높은 심각도** 채택
-- 같은 뿌리의 다른 증상(로직 결함 + 그걸 못 잡는 테스트 공백) → **하나의 수정 항목**으로 묶는다. 따로 고치면 수정과 회귀 테스트가 다른 커밋으로 흩어진다
-- 서로 반대되는 지적 → 삭제하지 말고 **양쪽 병기**해 사용자 판단으로 올린다
-- `[범위 밖]` 표시된 지적 → 수정 대상에서 빼고 Phase 4 입력으로 넘긴다
+`review-{group}.md`를 읽고 `.claude/_workspace/{run-id}/findings-{group}.md`로 옮긴다. 축이 하나뿐이라 교차 병합은 없다 — `[범위 밖]` 표시된 지적만 수정 대상에서 빼서 Phase 4 입력으로 남긴다.
 
 **게이트 3 (Critical이 있을 때만):** Critical 지적은 사용자에게 보고하고 수정 방향을 확인받는다. Major 이하는 바로 수정 루프로 넘어간다.
 
@@ -203,17 +199,18 @@ run-id: {run-id}
 지적별로 수정함/반박/보류를 빠짐없이 명시하라.
 ```
 
-### 3-3. 재검증
+### 3-3. 재검증 — 기본적으로 하지 않는다
 
-**Critical·Major가 하나라도 있었으면** 해당 축의 리뷰어를 재호출해 `해소/미해소/부분 해소`를 판정받는다. Minor만 있었으면 생략하고 다음 묶음으로 간다.
+**이게 이번 축소의 핵심 트레이드오프다.** 이전에는 Critical·Major가 있으면 해당 축을 다시 불러 `해소/미해소/부분 해소`를 판정했다. 기본 흐름에서는 이 호출을 생략하고 **implementer의 수정 보고를 그대로 신뢰한다** — 수정이 실제로 지적을 해소했는지 아무도 다시 확인하지 않는다. 이건 실수가 아니라 사용자가 동의한 절충이다.
 
-**반박이 올라오면 오케스트레이터가 판정한다.** 리뷰어와 구현자 중 누가 옳은지 코드를 보고 결정하고, 판단이 갈리면 사용자에게 올린다. 반박을 무시하고 수정을 강요하지 않는다 — 납득하지 못한 채 고친 코드가 가장 위험하다.
+- 반박이 올라오면 오케스트레이터가 코드를 직접 읽고 판정한다(리뷰어를 다시 부르지 않는다). 판단이 갈리면 사용자에게 올린다.
+- 사용자가 "다시 확인해줘"/"재검증해줘"라고 명시적으로 요청하면 그때만 `reviewer-lite`를 재호출한다. 요청 없이 자동으로 돌지 않는다.
 
-### 3-4. 수렴 규칙
+### 3-4. 사이클 상한
 
-**같은 묶음의 리뷰 사이클은 최대 2회.** 2회를 돌고도 Critical/Major가 남으면 멈추고 사용자에게 올린다. 3회차부터는 대개 설계 문제이지 구현 문제가 아니다.
+기본은 **0사이클**(재검증 없음). 사용자 요청으로 재검증을 돌리는 경우도 **최대 1회** — 그래도 수렴 안 되면 설계 문제로 보고 사용자에게 올린다.
 
-각 묶음이 끝날 때 `journal.md`에 append: 묶음 · 커밋 범위 · 지적 건수(심각도별) · 수정/반박/보류 내역 · 사이클 횟수.
+각 묶음이 끝날 때 `journal.md`에 append: 묶음 · 커밋 범위 · 지적 건수(심각도별) · 수정/반박/보류 내역.
 
 ---
 
@@ -267,10 +264,8 @@ CLAUDE.md 변경 이력에 기록하라.
 ```
 .claude/_workspace/{run-id}/
 ├── journal.md                      # 전 단계 append. Phase 4의 주 입력
-├── review-{group}-correctness.md
-├── review-{group}-contract.md
-├── review-{group}-test.md
-└── findings-{group}.md             # 오케스트레이터가 병합
+├── review-{group}.md                # reviewer-lite 보고서 (3축 전환 시 review-{group}-{axis}.md 3개)
+└── findings-{group}.md             # 오케스트레이터가 정리
 
 docs/superpowers/specs/{run-id}-design.md    # 사용자 자산 — 커밋한다
 docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
@@ -294,7 +289,7 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 - 계획 이탈: {내용 또는 없음}
 - 리뷰: Critical {a} / Major {b} / Minor {c} / Note {d}
 - 처리: 수정 {x} / 반박 {y} / 보류 {z}
-- 사이클: {1 | 2}
+- 재검증: {없음(기본) | 1회(사용자 요청)}
 
 ## 최종 검증
 - {명령} → {결과}
@@ -307,11 +302,11 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 | 상황 | 대응 |
 |---|---|
 | 에이전트가 결과 없이 실패 | **1회 재시도.** 재실패면 그 단계 산출물 없이 진행하고 **저널과 사용자 보고에 누락을 명시**한다 |
-| 리뷰어 3인 중 1인 실패 | 나머지 2축으로 진행. 누락된 축을 findings 문서 상단에 명시 |
-| 리뷰어 지적이 서로 반대 | 삭제 금지. 양쪽 병기 + 출처(어느 축) 표기 후 사용자 판단 |
+| (3축 전환 모드에서) 리뷰어 3인 중 1인 실패 | 나머지 2축으로 진행. 누락된 축을 findings 문서 상단에 명시 |
+| 리뷰어 지적이 서로 반대되는 반박 | 삭제 금지. 양쪽 병기 + 출처 표기 후 사용자 판단 |
 | 구현자가 3회 시도해도 막힘 | 중단. 지금까지의 커밋과 막힌 지점을 사용자에게 보고 |
 | 계획 이탈이 spec 수준 | Phase 1로 되돌린다. 우회 구현을 승인하지 않는다 |
-| 같은 묶음 리뷰 3회차 진입 | 멈추고 사용자에게 올린다 (설계 문제일 가능성) |
+| 사용자 요청으로 재검증했는데도 수렴 안 됨(2회차 진입) | 멈추고 사용자에게 올린다 (설계 문제일 가능성) |
 | 최종 검증 실패 | Phase 4로 넘어가지 않는다. 실패를 보고하고 수정 루프로 되돌린다 |
 | `_workspace/` 쓰기 실패 | 저널 없이 진행하지 않는다 — Phase 4의 입력이 사라진다. 경로를 확인하고 중단 |
 
@@ -330,11 +325,11 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 | 규모 | 축약 |
 |---|---|
 | 태스크 3개 이하 단일 워크스페이스 | spec 생략 가능(계획에 결정을 인라인). 리뷰 묶음 1개 |
-| 버그 수정 1건 | Phase 1을 "재현 테스트 + 수정 태스크" 계획 하나로. 리뷰는 3축 유지 |
-| 여러 워크스페이스에 걸친 기능 | 전체 수행. `reviewer-contract`가 특히 중요 |
-| 리팩터링 (동작 무변경) | 리뷰 축 중 `reviewer-test` 비중을 높인다 — 동작 보존의 유일한 증거다 |
+| 버그 수정 1건 | Phase 1을 "재현 테스트 + 수정 태스크" 계획 하나로. 리뷰는 기본(`reviewer-lite`) 유지 |
+| 여러 워크스페이스에 걸친 기능 | 전체 수행. `reviewer-lite` 프롬프트에 경계면 교차 비교(체크리스트 2번)를 특히 강조하도록 명시한다 |
+| 리팩터링 (동작 무변경) | `reviewer-lite`에게 테스트 품질(회귀 공백) 비중을 높이라고 프롬프트에 명시한다 — 동작 보존의 유일한 증거다 |
 
-**축약해도 리뷰 3축과 compound는 유지한다.** 그 둘이 이 하네스의 존재 이유다.
+**축약해도 review(`reviewer-lite` 최소 1회)와 compound는 유지한다.** 그 둘이 이 하네스의 존재 이유다.
 
 ---
 
@@ -348,7 +343,7 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 2. Phase 1-1 — `spec-architect`가 `countStageStatus` 재사용을 결정, 출력 포맷을 확정. 미해결 질문 없음 → 게이트 1 통과
 3. Phase 1-2 — `plan-writer`가 태스크 3개(포매터 순수 함수 / 커맨드 / index 등록), 묶음 1개 제안 → 게이트 2 통과
 4. Phase 2 — `implementer`가 태스크 3개를 TDD로 구현, 커밋 3개
-5. Phase 3 — 3축 병렬. `reviewer-test`가 "빈 결과일 때 출력 테스트 없음"(Major) 1건 → 수정 → 재검증 해소
+5. Phase 3 — `reviewer-lite` 단일 패스. "빈 결과일 때 출력 테스트 없음"(Major) 1건 → `implementer`가 수정 → **재검증 없이 신뢰**, 다음 단계로
 6. 최종 검증: `npm test`, `npm run typecheck`, `npm run build` 통과
 7. Phase 4 — `compounder`: 새 학습 없음. 정직하게 "없음" 보고 → 사용자 피드백 청취
 
