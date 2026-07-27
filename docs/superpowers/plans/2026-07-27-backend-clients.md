@@ -2819,6 +2819,10 @@ AppModule에 배선하지 않는 이유는 소비자가 없어서다. 지금 넣
 >
 > **401/403은 건드리지 않는다.** TEI에 자격증명이 없으므로 `auth`로 청구할 우리 설정이 없다 — "그 외 비-2xx"로 남긴다(spec 같은 절 참조).
 
+> **[리뷰 수정 완료 — `029d691`]** 위 404 대응이 실제로 반영됐다. `classifyByStatus` 맨 앞에 `if (status === 404) return 'not-found';`를 추가하고, `'분류되지 않은 비-2xx는 upstream이다'`를 418만 남긴 뒤 `'404는 not-found다 — 엔드포인트 경로 오설정'` 케이스로 분리했다. 먼저 새 케이스를 추가해 `Expected: not-found, Received: upstream`으로 실패를 확인한 뒤 구현했다.
+
+> **[리뷰 수정 완료 — `8e9ac32`]** `review-CD.md` "[Minor] `classifyTeiFailure`의 '본문은 판정에 쓰지 않는다' 회귀 가드가 spec이 지정한 fixture보다 약하다"에 대응해 `tei.errors.spec.ts`의 `'bodySnippet은 판정에 쓰이지 않는다'`(동치 비교뿐)에 `'bodySnippet의 숫자·토큰이 500 판정을 뒤집지 못한다'`를 추가했다 — spec `:1114`가 지정한 3-fixture(빈 문자열 / 토큰수 500 / `RESOURCE_EXHAUSTED` 500)를 전부 `upstream`으로 리터럴 단정한다. 지적이 든 변이(`bodySnippet`에 `429`·`RESOURCE_EXHAUSTED`가 있으면 `quota`로 승격)를 실제로 주입해 새 단정이 `Expected: upstream, Received: quota`로 잡는 것을 확인한 뒤 원복했다 — 기존 동치 비교만으로는 이 변이가 통과했을 것이다.
+
 - [x] **Step 1: 구조 검증의 기준점을 표시**
 
 TEI 태스크 두 개(10·11)의 커밋 diff가 구조 검증의 증거다. 시작 지점을 남긴다.
@@ -3089,6 +3093,8 @@ TeiClient.embedQuery(text)
      벡터가 비었음       → throw ExternalServiceError('tei','empty-response')  → 규칙 3으로 그대로 통과
    })
 ```
+
+> **[리뷰 수정 완료 — `6719d8b`]** `review-CD.md` "[Minor] `TEI_BASE_URL` 부재가 부팅을 실패시킨다는 계약에 테스트가 없다 (Qdrant에는 있다)"에 대응했다. `qdrant.client.spec.ts:112`("QDRANT_URL이 없으면 부팅이 실패한다")와 대칭인 `'TEI_BASE_URL이 없으면 부팅이 실패한다'`를 `tei.client.spec.ts`에 추가하려면 아래 Step 1 블록의 `createClient()`가 env를 주입받지 못하는 구조라 먼저 `env: Record<string, string> = { TEI_BASE_URL: BASE_URL }` 매개변수를 받도록 고쳤다(Qdrant의 `createClient`와 같은 형태). `TeiClient` 생성자를 `config.get() ?? ''`로 바꿔 새 테스트가 `Resolved to value: {"baseUrl": ""}`로 잡는 것을 확인한 뒤 원복했다. 같은 커밋에서 이 태스크가 함께 건드리는 `clients.module.spec.ts:113`의 패턴 없는 `toThrow()`도 `/GEMINI_API_KEY/`로 좁혔다 — providers 순서상 `GeminiClient`가 먼저 던진다.
 
 - [x] **Step 1: 실패하는 테스트 작성**
 
