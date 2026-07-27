@@ -60,13 +60,22 @@ spec `#### 추가 미해결 질문` **5. Qdrant 429를 `quota`로 올릴 것인�
 - 작업 디렉터리는 **`backend/`**. Task 13만 저장소 루트에서 실행한다. 모든 명령은 해당 디렉터리에서 실행한다 (루트에 package.json이 없다).
 - 테스트 실행: `npm test` · 단건: `npm test -- src/clients/call-external.spec.ts` · e2e: `npm run test:e2e`
 - 타입 검사: **`npx tsc --noEmit -p tsconfig.json`** (`npm run typecheck` 스크립트가 없다)
-- 린트: `npm run lint` — **`--fix`가 붙어 있어 파일을 수정한다.** 각 태스크의 커밋 직전에 돌리고 결과를 확인한 뒤 `git add` 한다. 포맷을 손으로 맞추지 않는다.
+- 린트: `npm run lint` — **`--fix`가 붙어 있어 파일을 수정한다.** 각 태스크의 커밋 직전에 돌리고 결과를 확인한다. 포맷을 손으로 맞추지 않는다. 리뷰 게이트는 `npx eslint src/clients --max-warnings=0`으로 도니 **경고도 0이어야 한다.**
+- **커밋은 `git commit -- <경로>`로 경로를 지정한다.** `git add` 후 `git status`로 확인만 하는 것으로는 부족하다 — **확인과 커밋 사이에 인덱스가 바뀔 수 있다.** 실제로 묶음 B에서 그 사이에 `core/` 파일이 스테이지에 올라와 남의 파일 2개가 커밋에 딸려 들어갔다(`git reset --soft` + 경로 지정 커밋으로 복구). 경로를 지정하면 인덱스 상태와 무관하게 그 파일만 커밋된다. **이 계획의 커밋 명령은 전부 `git commit -m "..." -- <경로들>` 형태로 적혀 있다.**
 - **테스트 파일은 소스 옆에 `*.spec.ts`로 둔다.** jest `rootDir`가 `src`다. `test/`는 e2e 전용.
 - **import는 전부 상대 경로.** `tsconfig.json`에 `baseUrl`·`paths`가 없어 `@/` 별칭은 컴파일되지 않는다. backend는 CJS이므로 `.js` 확장자를 붙이지 않는다 (core 규약과 반대다).
 - 주석·로그 메시지·에러 메시지·커밋 메시지는 **한국어**로 쓴다.
 - **테스트는 전부 모킹이다. 실제 네트워크·DB 호출을 하지 않는다.** 모킹 경계는 SDK 모듈(`jest.mock('@google/genai')` / `jest.mock('@qdrant/js-client-rest')`)이고, **TEI만 전역 `fetch` 스텁**(`jest.spyOn(globalThis, 'fetch')`)이다. spy를 걸지 않은 테스트가 하나라도 있으면 CI에서 TEI 주소로 나간다 — `afterEach`에서 반드시 복원한다.
 - 클라이언트 spec은 `ConfigModule.forRoot({ ignoreEnvFile: true, skipProcessEnv: true, load: [...] })`로 설정을 명시 주입한다. **`skipProcessEnv`까지 켜는 이유:** `ConfigService.get`의 조회 순서가 `validatedEnv → process.env → internalConfig`라 개발자 셸에 `GEMINI_MODEL`이 export돼 있으면 `load` 값이 무시된다.
 - eslint가 `recommendedTypeChecked`다. `no-unsafe-assignment`·`no-unsafe-member-access`가 **error**이므로 `unknown`을 다룰 때 `as unknown` 경유 후 좁히기를 지킨다 (`no-explicit-any`만 off다).
+- **이 절의 코드 예시는 커밋된 코드에서 가져온다. 새로 지어 쓰지 않는다.** 계획이 컴파일되지 않는 코드를 제시하면 구현자가 이탈을 만들어야 하고, 그 이탈이 매번 리뷰·판정 비용을 낸다. 실제로 두 번 났다 — 중첩 `expect.objectContaining`, 그리고 `spy.mock.calls[0][0]`을 그대로 쓴 `loggedText` 헬퍼. 예시를 새로 쓸 일이 생기면 **먼저 해당 워크스페이스에서 컴파일·린트를 통과시킨 뒤** 그 형태를 옮긴다.
+- **구조분해로 키를 빼는 관용구(`const { key: _omit, ...rest } = obj`)를 쓰지 않는다.** typescript-eslint의 `no-unused-vars`는 **`ignoreRestSiblings` 기본값이 `false`** 라 `_omit`이 미사용 변수 **error**가 된다(`_` 접두사도 봐주지 않는다 — `varsIgnorePattern`이 설정돼 있지 않다). 키를 빼려면 헬퍼를 쓴다.
+
+  ```ts
+  function without(source: Record<string, unknown>, key: string): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(source).filter(([name]) => name !== key));
+  }
+  ```
 - **테스트 mock에는 생성 시점에 타입을 준다. 호출 인자를 캐스팅으로 꺼내지 않는다.** 묶음 B~E가 각자 다른 방식을 고르면 spec 스타일이 갈린다.
   - 우리가 만드는 mock: `jest.fn<반환타입, [인자타입]>()`으로 선언한다. 그러면 `mock.calls[0][0]`이 이미 타입을 갖고 `.config` 같은 **오타까지 컴파일 단계에서 잡힌다.** `as { ... }` 캐스팅은 오타를 그대로 통과시키므로 쓰지 않는다
 
@@ -81,12 +90,23 @@ spec `#### 추가 미해결 질문` **5. Qdrant 429를 `quota`로 올릴 것인�
     // 나쁨 — .cofnig 오타가 통과하고 런타임에 undefined가 된다
     const config = generateContent.mock.calls[0][0].config as { abortSignal?: AbortSignal };
     ```
-  - `any`가 **실제 API 시그니처에서 오는 경우**(Nest `Logger.error(message: any, ...)`, `jest.spyOn`으로 감싼 외부 함수)에만 지역 헬퍼로 한 번 좁힌다. 파일마다 그 헬퍼 하나만 두고, 단정마다 캐스팅을 흩뿌리지 않는다
+  - `any`가 **실제 API 시그니처에서 오는 경우**(Nest `Logger.error(message: any, ...)`, `jest.spyOn`으로 감싼 외부 함수)에만 지역 헬퍼로 한 번 좁힌다. 파일마다 그 헬퍼 하나만 두고, 단정마다 캐스팅을 흩뿌리지 않는다.
+
+    `jest.SpyInstance`의 `mock.calls` 원소는 `any`로 추론돼 **`spy.mock.calls[0][0]`을 그대로 쓰면 `no-unsafe-member-access`(error)** 다. `unknown[][]`을 거쳐 좁힌다 — 아래는 `src/clients/call-external.spec.ts:17-29`에 커밋된 형태 그대로다.
 
     ```ts
-    /** Logger.error의 첫 인자가 any라 여기서 한 번만 좁힌다. */
-    function loggedText(spy: jest.SpyInstance, call = 0): string {
-      return String(spy.mock.calls[call][0]);
+    /**
+     * 로그 호출들의 메시지.
+     * jest.SpyInstance의 mock.calls 원소는 any로 추론돼 no-unsafe-member-access에 걸린다.
+     * unknown을 거쳐 좁힌다.
+     */
+    function allLogMessages(spy: jest.SpyInstance): string[] {
+      const calls = spy.mock.calls as unknown as unknown[][];
+      return calls.map((args) => String(args[0]));
+    }
+
+    function firstLogMessage(spy: jest.SpyInstance): string {
+      return allLogMessages(spy)[0];
     }
     ```
 - **중첩 `expect.objectContaining`을 쓸 수 없다.** `objectContaining`은 `any`를 반환하므로, 그 결과가 객체 리터럴의 속성으로 들어가는 순간 `@typescript-eslint/no-unsafe-assignment`(**error**)에 걸린다. 위에서 타입을 준 mock일수록 확실히 걸린다.
@@ -110,6 +130,21 @@ spec `#### 추가 미해결 질문` **5. Qdrant 429를 `quota`로 올릴 것인�
   → **타입 있는 mock에는 `toHaveBeenCalledWith` 대신 `mock.calls` 구조분해 + 필드별 단정을 기본형으로 쓴다.** `objectContaining`은 untyped mock(`jest.Mock`으로 캐스팅한 SDK 생성자, Nest `Logger` spy 등)에만 남긴다.
 
   > 완료된 Task 5의 코드 블록에는 이 규칙이 반영되기 전의 중첩 형태가 남아 있다. 묶음 B 구현자가 필드별 단정으로 바꿔 커밋했고 그 이탈이 journal에 기록돼 있다 — **계획 블록이 아니라 커밋된 코드가 기준이다.**
+- **음성 단정을 쓸 때는 판정·경로가 실제로 도달했음을 먼저 보장한다.** `toBeNull()` · `not.toHaveBeenCalled()` · `not.toContain()` · `rejects` 없는 `resolves` 같은 단정은 **기대값이 "아무 일도 안 일어남"이라서, 판정이 애초에 도달하지 못해도 통과한다.** 양성 케이스는 값이 틀리면 바로 빨간불이지만 음성은 아니다.
+
+  묶음 B 구현자가 자기 fixture 3개가 통과하면서 아무것도 검증하지 않는 것을 스스로 잡았다. 셋 다 음성 케이스였다.
+
+  | 잘못 쓴 fixture | 왜 0건이었나 |
+  |---|---|
+  | `'NOT_FOUND: 모델을 찾을 수 없습니다'`로 "not-found가 invalid-request보다 먼저"를 주장 | `INVALID_ARGUMENT`가 없어서 **순서를 바꿔도** 안 걸림 |
+  | `{ code: 'ECONNREFUSED' }`로 "숫자가 아니면 상태로 안 읽는다"를 주장 | 가드를 지워도 `'ECONNREFUSED' >= 500`이 false |
+  | `{ message: { nested: 'API key' } }`로 타입가드를 주장 | `String()`이 `[object Object]`라 애초에 매치 불가 |
+
+  **규칙 두 가지.**
+  1. **조합을 주장하는 fixture는 그 조합의 조건을 전부 담는다.** 우선순위를 주장하려면 두 토큰이 **한 입력에** 있어야 하고(`'INVALID_ARGUMENT: ... NOT_FOUND'`), 타입가드를 주장하려면 가드를 지웠을 때 **실제로 다른 결과가 나오는** 값을 넣어야 한다.
+  2. **검증법 — 그 단정이 지키려는 구현 라인을 지웠을 때 실패하는가.** 0건이면 그 테스트는 아무것도 안 지킨다.
+
+  이건 이미 있는 "라인 삭제 검사"와 **층위가 다르다.** 라인 삭제 검사는 *"이 줄이 필요한가"* 를 묻고, 이건 *"이 fixture가 그 줄에 도달하는가"* 를 묻는다. **Task 7·10의 분류기 테스트가 음성 케이스를 많이 쓰므로 직접 걸린다** — `429 → null`, `TeiHttpError가 아니면 null`, `ECONNREFUSED를 자기 것으로 판정하지 않는다`가 전부 이 검사를 통과해야 한다.
 - **절대 하지 않을 것**
   - core를 의존성으로 끌어오지 않는다 (`file:../core` 금지). core 파일을 복사해 오지도 않는다.
   - 생성자·`onModuleInit`에서 네트워크를 만지지 않는다. core의 `QdrantStore.connect()` 패턴을 가져오지 않는다.
@@ -1398,6 +1433,21 @@ import {
  * 타입 시스템이 두 워크스페이스를 연결하지 못하므로 여기서 리터럴로 단정한다.
  */
 
+/**
+ * 특정 키만 뺀 사본.
+ * `const { contentid: _ignored, ...rest }` 구조분해는 뺀 변수가
+ * no-unused-vars(error)에 걸린다 — typescript-eslint의 ignoreRestSiblings 기본값이
+ * false다. 헬퍼로 뺀다.
+ */
+function without(
+  source: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(source).filter(([name]) => name !== key),
+  );
+}
+
 function completePayload(): Record<string, unknown> {
   return {
     contentid: '126508',
@@ -1431,8 +1481,7 @@ describe('parseTourContentPayload', () => {
 
   it('contentid가 없으면 null이다', () => {
     // contentid가 없으면 Postgres 재조회가 불가능해 hit 자체가 쓸모없다.
-    const { contentid: _ignored, ...rest } = completePayload();
-    expect(parseTourContentPayload(rest)).toBeNull();
+    expect(parseTourContentPayload(without(completePayload(), 'contentid'))).toBeNull();
   });
 
   it('contentid가 빈 문자열이어도 null이다', () => {
@@ -1645,7 +1694,7 @@ contentid가 없는 hit을 버리는 이유는 Postgres 재조회가 불가능�
 나머지 필드는 ''로 보정한다 — 표시용 필드 하나가 비었다고 버릴 이유가 없다.
 
 TourSearchFilter를 client가 아니라 여기 둔 것은 설계 문서의 경계표 행을
-따른 것이다(인터페이스 절과 어긋나 있었다). 반대로 두면 순환 import가 된다."
+따른 것이다(인터페이스 절과 어긋나 있었다). 반대로 두면 순환 import가 된다." -- backend/src/clients/qdrant/tour-content-payload.ts backend/src/clients/qdrant/tour-content-payload.spec.ts
 ```
 
 ---
@@ -1678,6 +1727,14 @@ TourSearchFilter를 client가 아니라 여기 둔 것은 설계 문서의 경�
 > **핵심은 상태 코드와 검색 문자열을 각각 두 곳에서 모으는 것**이고, 나머지는 그 위의 단순한 분기다. 그래서 테스트가 **두 shape을 각각 넣어 같은 kind가 나오는지** 확인한다 — 한 shape만 테스트하면 다른 쪽이 통째로 오분류돼도 초록불이 켜진다.
 >
 > **Qdrant 429는 `null`이다** (spec `:641-645`, 미해결 질문 5의 답 A). 근거가 "쿼터 개념이 없어서"가 아니라 **`quota`로 올리면 SDK가 쥔 실제 `retry_after`를 쓰기 위해 `ExternalServiceError`에 필드를 더해야 하고, 그건 구조 검증이 금지한 공통 파일 변경이기 때문**이다. 우연한 fall-through와 의도적 낙하는 다르므로 **`QdrantClientResourceExhaustedError`를 이름으로 지목한 테스트로 못 박는다.**
+
+> **[갱신 — 묶음 B의 3단계 골격을 따른다]** 묶음 B가 spec의 3단계 규칙을 **`classifyByStatus(status, detail)`(2단계) + `classifyByDetail(detail)`(3단계)** 두 함수로 나누고 진입점을 삼항 하나로 두는 형태로 구현했다(변이 41개 생존 0). Qdrant도 같은 골격을 쓴다 — spec 3단계가 코드에서 그대로 읽혀 리뷰가 쉬워진다.
+>
+> **Qdrant는 1단계가 다르다.** 주 경로에는 `status` 프로퍼티가 없어 `message` **머리말**(`Unexpected Response: NNN (…)`)에서 파싱한다. **본문은 1단계에서 보지 않는다** — 본문에 실린 숫자(`expected dim: 1024`)를 상태로 오인하면 안 된다. `dimension-mismatch`는 400이 확정된 뒤 세부를 가르는 **2단계**다.
+>
+> **이 골격이 spec 판정 규칙 4를 한 군데 좁힌다 — 의도한 것이고, 확인이 필요하면 올린다.** spec 4번은 "상태 404 **또는** 검색 문자열이 not-found 패턴 → `not-found`"인데, 골격에서는 문자열 판정이 **상태를 못 읽었을 때만** 동작한다(3단계). 즉 `400 + 본문에 "doesn't exist"`는 spec 문면대로면 `not-found`(500), 골격에서는 `invalid-request`(502)다.
+>
+> 골격을 택한 이유는 묶음 B가 세운 원칙 **"확정이 추측을 이긴다"** 가 그대로 적용되기 때문이다 — `status`는 HTTP 응답 상태 그 자체이고 문자열 정규식은 그걸 추측하려는 대체 수단이다. 실제로 Qdrant는 컬렉션 부재에 404를 내므로 문자열 경로는 **상태를 아예 못 읽을 때의 안전망**이고(core가 `isCollectionNotFound`에 남긴 주석이 바로 그 상황이다), 그 용도로 쓰면 두 규칙이 충돌하지 않는다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1780,9 +1837,13 @@ for (const { label, build } of SHAPES) {
       // Gemini와 다르다. quota로 올리면 SDK가 쥔 실제 retry_after를 실어 나르려고
       // ExternalServiceError에 필드를 더해야 하고, 그건 구조 검증이 금지한
       // 공통 파일 변경이다(spec 미해결 질문 5의 답 A).
-      expect(
-        classifyQdrantFailure(build(429, 'Too Many Requests', { status: { error: 'slow down' } })),
-      ).toBeNull();
+      const body = { status: { error: 'slow down' } };
+      expect(classifyQdrantFailure(build(429, 'Too Many Requests', body))).toBeNull();
+
+      // 음성 단정이라 "판정에 도달했는가"를 함께 확인한다. 같은 builder가 404에서는
+      // not-found를 내므로 위의 null은 상태를 못 읽은 결과가 아니라 실제 결정이다.
+      // 이 짝이 없으면 fixture shape이 깨져도 초록불이 켜진다.
+      expect(classifyQdrantFailure(build(404, 'Not Found', body))).toBe('not-found');
     });
   });
 }
@@ -1800,7 +1861,8 @@ describe('classifyQdrantFailure — shape과 무관한 케이스', () => {
 
   it('QdrantClientResourceExhaustedError도 null이다', () => {
     // 우연한 fall-through가 아니라 의도적 낙하임을 이름으로 못 박는다.
-    // 이 테스트가 없으면 나중에 누가 429 판정을 넣어도 아무도 모른다.
+    // 이건 "구현 라인을 지키는" 테스트가 아니라 결정을 고정하는 테스트다 —
+    // 누가 quota 분기를 새로 넣으면 빨간불이 된다(삭제가 아니라 추가를 잡는다).
     const error = Object.assign(new Error('Too Many Requests'), {
       name: 'QdrantClientResourceExhaustedError',
       retry_after: 30,
@@ -1860,10 +1922,11 @@ Expected: FAIL — `Cannot find module './qdrant.errors' from 'src/clients/qdran
 import { ExternalFailureKind } from '../external-service.error';
 
 /**
- * 주 경로 오류(QdrantClientUnexpectedResponseError)는 상태 코드를 프로퍼티가 아니라
- * message 문자열 안에만 담는다: "Unexpected Response: 404 (Not Found)".
+ * 1단계에서만 쓴다. 주 경로 오류(QdrantClientUnexpectedResponseError)는 상태 코드를
+ * 프로퍼티가 아니라 message **머리말**에 담는다: "Unexpected Response: 404 (Not Found)".
+ * 본문은 이 단계에서 보지 않는다 — 본문에 실린 숫자를 상태로 오인하면 안 된다.
  */
-const STATUS_IN_MESSAGE = /Unexpected Response:\s*(\d{3})/;
+const STATUS_IN_MESSAGE_HEAD = /Unexpected Response:\s*(\d{3})/;
 
 /** core의 isCollectionNotFound(core/src/clients/qdrant.ts:8-14)와 같은 규칙이다. */
 const NOT_FOUND_PATTERN = /not found|doesn't exist|does not exist/i;
@@ -1877,10 +1940,16 @@ function nameOf(error: unknown): string {
   return typeof record.name === 'string' ? record.name : '';
 }
 
+/**
+ * instanceof를 쓰지 않는다. SDK 내부의 fetch 실패는 Node(undici)가 호스트 realm에서
+ * 만들고 jest는 테스트를 자기 realm의 vm 샌드박스에서 돌린다 — message는 멀쩡한데
+ * instanceof Error만 어긋난다(call-external.ts의 causeMessage와 같은 이유).
+ */
 function messageOf(error: unknown): string {
+  if (typeof error === 'string') return error;
   if (typeof error !== 'object' || error === null) return '';
-  const record = error as { message?: unknown };
-  return typeof record.message === 'string' ? record.message : '';
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' ? message : '';
 }
 
 function stringifyData(data: unknown): string {
@@ -1894,7 +1963,7 @@ function stringifyData(data: unknown): string {
 }
 
 /**
- * 상태 코드를 두 곳에서 찾는다.
+ * 1단계 — 상태 코드를 두 곳에서 찾는다.
  *
  * ApiError는 status 프로퍼티를 갖지만, 주 경로인 QdrantClientUnexpectedResponseError는
  * 갖지 않는다. 프로퍼티만 보면 실제 운영에서 오는 오류의 대부분이 "상태 미상"이 되고
@@ -1905,30 +1974,71 @@ function statusOf(error: unknown): number | null {
     const record = error as { status?: unknown };
     if (typeof record.status === 'number') return record.status;
   }
-  const matched = STATUS_IN_MESSAGE.exec(messageOf(error));
+  const matched = STATUS_IN_MESSAGE_HEAD.exec(messageOf(error));
   return matched === null ? null : Number(matched[1]);
 }
 
 /**
- * 판정에 쓸 문자열. 두 shape이 응답 본문을 서로 다른 곳에 넣으므로 이어붙인다 —
- * UnexpectedResponse는 message에, ApiError는 data에 담는다.
+ * 2·3단계가 함께 보는 검색 문자열. 두 shape이 응답 본문을 서로 다른 곳에 넣으므로
+ * 이어붙인다 — UnexpectedResponse는 message에, ApiError는 data에 담는다.
  */
 function detailOf(error: unknown): string {
   if (typeof error !== 'object' || error === null) {
-    return typeof error === 'string' ? error : '';
+    return messageOf(error);
   }
   const record = error as { data?: unknown };
   return `${messageOf(error)} ${stringifyData(record.data)}`;
 }
 
 /**
+ * 2단계 — 확정된 상태 **안에서** 세부를 가른다. 본문은 상태를 뒤집지 못한다.
+ *
+ * 400에서만 본문을 보는 이유: Qdrant는 차원 불일치도 형식 오류도 400으로 낸다.
+ * 전자는 우리 코드/설정 문제(500)이고 후자는 요청 거절(502)이라 청구 대상이 다르다.
+ *
+ * 429는 어느 분기에도 없어 null로 떨어진다 — 의도된 낙하다.
+ * quota로 올리려면 SDK가 쥔 실제 retry_after를 실어 나르도록 ExternalServiceError를
+ * 바꿔야 하고, 그건 구조 검증이 금지한 공통 파일 변경이다(spec 미해결 질문 5의 답 A).
+ */
+function classifyByStatus(
+  status: number,
+  detail: string,
+): ExternalFailureKind | null {
+  if (status === 404) return 'not-found';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 400) {
+    return DIMENSION_PATTERN.test(detail)
+      ? 'dimension-mismatch'
+      : 'invalid-request';
+  }
+  if (status >= 500 && status <= 599) return 'upstream';
+  return null;
+}
+
+/**
+ * 3단계 — 상태를 끝내 확정하지 못했을 때만 쓰는 안전망.
+ *
+ * core가 isCollectionNotFound에 남긴 주석("SDK 버전에 따라 status를 노출하지 않는
+ * 경우가 있어 메시지도 함께 본다")이 정확히 이 자리다. 컬렉션 부재만 본다 —
+ * 다른 kind까지 문자열로 추측하면 오분류 표면이 넓어진다.
+ */
+function classifyByDetail(detail: string): ExternalFailureKind | null {
+  if (NOT_FOUND_PATTERN.test(detail)) return 'not-found';
+  return null;
+}
+
+/**
  * Qdrant SDK 오류를 kind로 판정한다. 모르는 오류에는 null을 반환해 공통 판정에 넘긴다.
  * 절대 던지지 않는다 — callExternal이 분류기 예외를 막아 주지만 그건 최후 방어선이고,
  * 던지는 순간 이 호출의 kind는 upstream으로 떨어진다.
+ *
+ * gemini.errors.ts와 같은 3단계 골격이다: 상태 추출 → 상태 안에서 세부 → 상태를
+ * 못 읽었을 때만 문자열 추정. **확정이 추측을 이긴다.**
  */
 export function classifyQdrantFailure(
   error: unknown,
 ): ExternalFailureKind | null {
+  // 상태 코드가 없는 실패라 3단계 골격 밖에서 먼저 본다.
   // SDK가 fetch의 AbortError를 자기 타입으로 바꿔 다시 던지므로(api-client.js:31-35)
   // classifyCommonFailure의 이름 판정에 걸리지 않는다. 여기서 잡지 않으면
   // 에러 표의 "Qdrant 5초 초과 → 504"가 조용히 502가 된다.
@@ -1937,19 +2047,11 @@ export function classifyQdrantFailure(
   const status = statusOf(error);
   const detail = detailOf(error);
 
-  if (status === 404 || NOT_FOUND_PATTERN.test(detail)) return 'not-found';
-  if (status === 401 || status === 403) return 'auth';
-  if (status === 400) {
-    return DIMENSION_PATTERN.test(detail)
-      ? 'dimension-mismatch'
-      : 'invalid-request';
-  }
-  if (status !== null && status >= 500 && status <= 599) return 'upstream';
-
-  // 429는 여기로 떨어져 upstream(502)이 된다. quota로 올리려면 SDK가 쥔 실제
-  // retry_after를 실어 나르도록 ExternalServiceError를 바꿔야 하고, 그건
-  // 구조 검증이 금지한 공통 파일 변경이다(spec 미해결 질문 5의 답 A).
-  return null;
+  // 상태를 못 읽은 경우에만 문자열 추정으로 내려간다. 상태가 있는데 우리가 그 값을
+  // 모르는 것(429)과, 상태 자체가 없는 것은 다른 상황이다 — 전자는 null로 끝낸다.
+  return status === null
+    ? classifyByDetail(detail)
+    : classifyByStatus(status, detail);
 }
 ```
 
@@ -1983,7 +2085,7 @@ QdrantClientTimeoutError를 여기서 잡는 이유는 SDK가 fetch의 AbortErro
 그러면 5초 타임아웃이 504가 아니라 502가 된다.
 
 429를 quota로 올리지 않는 것은 결정이다. SDK가 실제 retry_after를 쥐고 있는데
-필터는 고정 60초를 보내고, 실제 값을 살리려면 공통 오류 타입을 바꿔야 한다."
+필터는 고정 60초를 보내고, 실제 값을 살리려면 공통 오류 타입을 바꿔야 한다." -- backend/src/clients/qdrant/qdrant.errors.ts backend/src/clients/qdrant/qdrant.errors.spec.ts
 ```
 
 ---
@@ -2055,6 +2157,17 @@ const getCollection = jest.fn<
   Parameters<QdrantClient['getCollection']>
 >();
 
+/**
+ * SDK 생성자에 넘어간 인자.
+ * QdrantClientMock은 jest.Mock으로 캐스팅한 것이라 mock.calls 원소가 any로
+ * 추론돼 no-unsafe-member-access에 걸린다. unknown을 거쳐 좁힌다
+ * (call-external.spec.ts의 allLogMessages와 같은 관용구).
+ */
+function constructorParams(): Record<string, unknown> {
+  const calls = QdrantClientMock.mock.calls as unknown as unknown[][];
+  return calls[0][0] as Record<string, unknown>;
+}
+
 const VECTOR = [0.1, 0.2, 0.3];
 
 function point(contentid: string, score: number) {
@@ -2109,12 +2222,9 @@ describe('QdrantSearchClient 생성자', () => {
     // timeout을 빠뜨리면 SDK 기본값 300초가 적용돼 사용자가 5분을 기다린다.
     await createClient();
 
-    expect(QdrantClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: 'http://qdrant.test:6333',
-        timeout: 5000,
-      }),
-    );
+    const params = constructorParams();
+    expect(params.url).toBe('http://qdrant.test:6333');
+    expect(params.timeout).toBe(5000);
   });
 
   it('QDRANT_API_KEY가 있으면 apiKey를 넘긴다', async () => {
@@ -2123,16 +2233,15 @@ describe('QdrantSearchClient 생성자', () => {
       QDRANT_API_KEY: 'secret',
     });
 
-    expect(QdrantClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: 'secret' }),
-    );
+    expect(constructorParams().apiKey).toBe('secret');
   });
 
   it('QDRANT_API_KEY가 없으면 apiKey 키 자체를 넘기지 않는다', async () => {
+    // 위 케이스와 짝이다. undefined를 넘기는 오구현은 apiKey 값 단정만으로는
+    // 안 잡히므로 키 존재 여부를 본다.
     await createClient();
 
-    const params = QdrantClientMock.mock.calls[0][0] as Record<string, unknown>;
-    expect('apiKey' in params).toBe(false);
+    expect('apiKey' in constructorParams()).toBe(false);
   });
 
   it('네트워크를 만지지 않는다', async () => {
@@ -2525,7 +2634,7 @@ search에 컬렉션 인자를 두지 않은 이유는 인자로 열면 호출자
 hit은 있는데 payload를 전 건 버린 경우를 502로 끊는다. hit 0건과 화면에서
 구분되지 않으므로 이 분기가 없으면 with_payload 누락을 며칠간 못 알아챈다.
 
-timeout을 명시하는 이유는 SDK 기본값이 300초라서다."
+timeout을 명시하는 이유는 SDK 기본값이 300초라서다." -- backend/src/clients/qdrant/qdrant.client.ts backend/src/clients/qdrant/qdrant.client.spec.ts
 ```
 
 ---
@@ -2642,7 +2751,7 @@ git commit -m "feat(backend): ClientsModule에 Gemini·Qdrant 등록
 
 AppModule에 배선하지 않는 이유는 소비자가 없어서다. 지금 넣으면 chat이
 클라이언트를 주입하는 시점에 지워야 할 import가 된다. 대가로 start:dev
-성공이 클라이언트 동작의 증거가 되지 않으므로 실측이 필수가 된다."
+성공이 클라이언트 동작의 증거가 되지 않으므로 실측이 필수가 된다." -- backend/src/clients/clients.module.ts backend/src/clients/clients.module.spec.ts
 ```
 
 ---
@@ -2756,6 +2865,8 @@ describe('classifyTeiFailure', () => {
 
   it('TeiHttpError가 아닌 오류에는 null을 반환한다', () => {
     // fetch가 던진 것을 가로채지 않고 공통 판정에 넘기는지 보는 반대 방향 케이스다.
+    // 음성 단정이므로 "가드를 지우면 실제로 다른 결과가 나오는" 값을 넣는다 —
+    // instanceof 가드를 빼면 status가 undefined가 되어 upstream이 나온다.
     const aborted = Object.assign(new Error('시간 초과'), { name: 'TimeoutError' });
     const refused = Object.assign(new Error('connect ECONNREFUSED'), {
       code: 'ECONNREFUSED',
@@ -2764,6 +2875,14 @@ describe('classifyTeiFailure', () => {
     expect(classifyTeiFailure(aborted)).toBeNull();
     expect(classifyTeiFailure(refused)).toBeNull();
     expect(classifyTeiFailure(new Error('그냥 오류'))).toBeNull();
+  });
+
+  it('status를 가진 남의 오류도 TeiHttpError가 아니면 null이다', () => {
+    // 위 케이스만으로는 "status 프로퍼티를 덕 타이핑으로 읽는" 오구현을 못 잡는다.
+    // 그렇게 구현하면 이 400짜리 가짜가 invalid-request로 새어 나온다.
+    const impostor = Object.assign(new Error('Bad Request'), { status: 400 });
+
+    expect(classifyTeiFailure(impostor)).toBeNull();
   });
 
   it('비-Error 값에도 null을 반환하고 던지지 않는다', () => {
@@ -2820,32 +2939,49 @@ export class TeiHttpError extends Error {
 }
 
 /**
+ * 1단계 — 상태 코드 추출. TEI는 우리가 만든 TeiHttpError에만 상태가 있다.
+ *
+ * instanceof를 여기서는 써도 된다. 묶음 A의 N-1(realm이 갈리면 instanceof가
+ * 어긋난다)은 undici가 호스트 realm에서 만드는 fetch 오류에 대한 것이고,
+ * TeiHttpError는 같은 realm의 TeiClient가 만든다.
+ * 외부에서 온 오류를 instanceof로 판정하지 않는다 — 그건 null로 흘려보내는 쪽이다.
+ */
+function statusOf(error: unknown): number | null {
+  return error instanceof TeiHttpError ? error.status : null;
+}
+
+/**
+ * 2단계 — 확정된 상태 안에서 세부를 가른다.
+ *
+ * 본문(bodySnippet)을 보지 않는다. TEI는 상태 코드만으로 판정이 결정되고,
+ * 본문 문구로 가르기 시작하면 TEI 버전이 문구를 바꿀 때 조용히 어긋난다.
+ */
+function classifyByStatus(status: number): ExternalFailureKind {
+  // 입력이 모델 제약을 벗어난 경우. truncate: true라 흔치 않다.
+  if (status === 400 || status === 413 || status === 422) {
+    return 'invalid-request';
+  }
+  // 5xx(모델 로딩 중·OOM)와 분류되지 않은 비-2xx는 모두 외부 사정으로 본다.
+  return 'upstream';
+}
+
+/**
  * TEI 실패를 kind로 판정한다. 모르는 오류에는 null을 반환해 공통 판정에 넘긴다.
+ *
+ * gemini.errors.ts·qdrant.errors.ts와 같은 3단계 골격이되 **3단계가 없다.**
+ * 문자열 추정 경로를 두지 않은 것이 이 서비스의 결정이다 — 상태를 못 읽었다는 것은
+ * TeiHttpError가 아니라는 뜻이고, 그건 fetch가 던진 것(연결 거부·중단)이라
+ * classifyCommonFailure의 몫이다. 여기서 가로채면 같은 실패가 두 곳에서 분류된다.
  *
  * auth·quota·not-found는 TEI에 없다 — 자체 호스팅이고 인증이 없다.
  * 서비스마다 쓰는 kind가 다른 것은 결함이 아니라, 이 타입이 서비스별 API가 아니라
  * 책임 귀속의 어휘라는 증거다.
- *
- * 연결 거부·중단은 fetch가 던지고 classifyCommonFailure가 처리한다.
- * 여기서 가로채면 같은 실패가 두 곳에서 분류된다.
  */
 export function classifyTeiFailure(
   error: unknown,
 ): ExternalFailureKind | null {
-  // instanceof를 여기서는 써도 된다. 묶음 A의 N-1(realm이 갈리면 instanceof가
-  // 어긋난다)은 undici가 호스트 realm에서 만드는 fetch 오류에 대한 것이고,
-  // TeiHttpError는 바로 아래 TeiClient가 같은 realm에서 만든다.
-  // 외부에서 온 오류를 instanceof로 판정하지 않는다 — 그건 이 함수가 null을
-  // 반환해 classifyCommonFailure에 넘기는 쪽이다.
-  if (!(error instanceof TeiHttpError)) return null;
-
-  // 입력이 모델 제약을 벗어난 경우. truncate: true라 흔치 않다.
-  if (error.status === 400 || error.status === 413 || error.status === 422) {
-    return 'invalid-request';
-  }
-
-  // 5xx(모델 로딩 중·OOM)와 분류되지 않은 비-2xx는 모두 외부 사정으로 본다.
-  return 'upstream';
+  const status = statusOf(error);
+  return status === null ? null : classifyByStatus(status);
 }
 ```
 
@@ -2878,7 +3014,7 @@ FailureClassifier 타입에도 맞지 않아 넘길 수조차 없다.
 설계상 필수로 바뀐다 — 빼면 분류기에 도달할 오류 자체가 만들어지지 않는다.
 
 bodySnippet을 판정에 쓰지 않는 이유는 TEI 버전이 오류 문구를 바꿔도
-분류가 흔들리지 않게 하기 위해서다. 상태 코드만으로 결정된다."
+분류가 흔들리지 않게 하기 위해서다. 상태 코드만으로 결정된다." -- backend/src/clients/tei/tei.errors.ts backend/src/clients/tei/tei.errors.spec.ts
 ```
 
 ---
@@ -3403,7 +3539,7 @@ response.ok 확인이 설계상 필수가 됐다 — 빼면 분류기에 도달�
 '[0]을 꺼내고 undefined를 체크하는' 실수를 타입에서 없앤다.
 
 응답 벡터의 길이를 검사하지 않는 이유는 검사하려면 기대 차원을 코드에 적어야
-하기 때문이다. 차원 판정은 컬렉션의 실제 값과 대조할 수 있는 Qdrant의 일이다."
+하기 때문이다. 차원 판정은 컬렉션의 실제 값과 대조할 수 있는 Qdrant의 일이다." -- backend/src/clients/tei/tei.client.ts backend/src/clients/tei/tei.client.spec.ts backend/src/clients/external-service.error.ts backend/src/clients/clients.module.ts backend/src/clients/clients.module.spec.ts
 ```
 
 ---
@@ -3420,7 +3556,9 @@ response.ok 확인이 설계상 필수가 됐다 — 빼면 분류기에 도달�
 >
 > 지워지면 모든 kind가 `500 {"statusCode":500,"message":"Internal server error"}`가 되고 **에러 처리 표 19행이 통째로 무효**가 된다. `quota`의 `Retry-After: 60`도 사라져 프론트가 재시도 안내를 못 한다. **Task 3의 결과물 전체가 배선 한 줄에 매달려 있다.**
 >
-> **대응(이 태스크에서):** 전역 설정을 `configureApp(app)` 공유 함수로 빼고 `main.ts`와 e2e가 **같은 함수를 재사용**한다(`circuit-breaker-entry-paths.md` — 진입 경로가 둘이면 같은 함수를 쓰게 만든다). 그 위에 **`ExternalServiceError`를 던지는 라우트를 태우는 e2e 1건**을 둔다. 배선이 지워지면 그 케이스가 빨간불이 된다.
+> **대응(이 태스크에서):** 전역 설정을 `configureApp(app)` 공유 함수로 빼고 `main.ts`와 e2e가 **같은 함수를 재사용**한다(`circuit-breaker-entry-paths.md` — 진입 경로가 둘이면 같은 함수를 쓰게 만든다). 그 위에 **`configureApp`이 붙이는 것 하나당 e2e 1건**을 둔다(필터 · 파이프). 어느 배선이 지워져도 그 케이스가 빨간불이 된다.
+>
+> **필터가 *무엇을 잡는가*는 이미 고정돼 있다** — 묶음 A의 F-7 대응으로 `src/clients/external-service.filter.nest.spec.ts`가 실제 Nest 파이프라인에서 선택성을 양방향 검증한다. 그 파일이 스스로 "부팅 시 실제로 배선되는지는 이 테스트의 범위가 아니다"라고 적어 뒀다. 여기서 메꾸는 것이 정확히 그 범위이므로, 매핑표를 다시 검증하지 않고 **배선 여부만** 태운다.
 >
 > **묶음 E 리뷰가 해소 여부를 반드시 판정한다.** 판정 방법은 명확하다 — `configureApp`에서 `useGlobalFilters` 한 줄을 지우고 `npm run test:e2e`가 실패하는지 본다.
 >
@@ -3462,6 +3600,18 @@ function completeEnv(): Record<string, unknown> {
   };
 }
 
+/**
+ * 키 하나를 뺀 env.
+ * `const { DATABASE_URL: _omit, ...rest }` 구조분해는 뺀 변수가
+ * no-unused-vars(error)에 걸린다 — typescript-eslint의 ignoreRestSiblings
+ * 기본값이 false다.
+ */
+function envWithout(key: string): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(completeEnv()).filter(([name]) => name !== key),
+  );
+}
+
 describe('validateEnv', () => {
   it('필수 키가 모두 있으면 config를 그대로 반환한다', () => {
     const config = completeEnv();
@@ -3474,24 +3624,22 @@ describe('validateEnv', () => {
   });
 
   it('DATABASE_URL이 없으면 throw한다', () => {
-    const { DATABASE_URL: _omit, ...rest } = completeEnv();
-    expect(() => validateEnv(rest)).toThrow('DATABASE_URL');
+    expect(() => validateEnv(envWithout('DATABASE_URL'))).toThrow('DATABASE_URL');
   });
 
   it('TEI_BASE_URL 하나만 없어도 throw한다', () => {
     // 신규 키가 실제로 필수 목록에 들어갔는지 보는 단독 케이스다.
-    const { TEI_BASE_URL: _omit, ...rest } = completeEnv();
-    expect(() => validateEnv(rest)).toThrow('TEI_BASE_URL');
+    expect(() => validateEnv(envWithout('TEI_BASE_URL'))).toThrow('TEI_BASE_URL');
   });
 
   it('GEMINI_API_KEY 하나만 없어도 throw한다', () => {
-    const { GEMINI_API_KEY: _omit, ...rest } = completeEnv();
-    expect(() => validateEnv(rest)).toThrow('GEMINI_API_KEY');
+    expect(() => validateEnv(envWithout('GEMINI_API_KEY'))).toThrow(
+      'GEMINI_API_KEY',
+    );
   });
 
   it('QDRANT_URL 하나만 없어도 throw한다', () => {
-    const { QDRANT_URL: _omit, ...rest } = completeEnv();
-    expect(() => validateEnv(rest)).toThrow('QDRANT_URL');
+    expect(() => validateEnv(envWithout('QDRANT_URL'))).toThrow('QDRANT_URL');
   });
 
   it('빈 문자열도 누락으로 본다', () => {
@@ -3670,75 +3818,87 @@ Expected: PASS 전부. **e2e의 `/ (GET)`이 200을 유지해야 한다** — `s
 
 `backend/test/external-service.e2e-spec.ts` 신규 파일 전문:
 
+관용구는 커밋된 `src/clients/external-service.filter.nest.spec.ts`를 그대로 따른다 — `getHttpServer() as Server` · `res.headers['retry-after']` · `res.body as {...}`.
+
 ```ts
-import { Controller, Get, INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { Body, Controller, Get, INestApplication, Post } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { IsString } from 'class-validator';
+import type { Server } from 'http';
 import request from 'supertest';
-import { App } from 'supertest/types';
 
 import { configureApp } from './../src/app.setup';
 import { ExternalServiceError } from './../src/clients/external-service.error';
 
 /**
- * main.ts의 전역 배선이 실제로 살아 있는지 확인하는 유일한 테스트다.
+ * configureApp이 실제로 무엇을 붙이는지 고정한다.
  *
+ * 전역 배선이 main.ts 안에만 있으면 어떤 테스트도 그 줄을 태우지 못한다 —
  * app.e2e-spec.ts는 createNestApplication()만 부르고 bootstrap()을 거치지 않아
  * useGlobalPipes·useGlobalFilters가 하나도 적용되지 않는다. 단위 spec은
- * ArgumentsHost를 위조한다. 그래서 배선 한 줄을 지워도 전부 초록불이었다.
+ * ArgumentsHost를 위조한다. 그래서 배선 한 줄을 지워도 전부 초록불이었다(F-5).
  *
- * 여기서는 main.ts와 같은 configureApp을 호출해 "그 함수가 무엇을 붙이는가"를
- * 실제 요청으로 태운다. configureApp에서 useGlobalFilters를 지우면 이 케이스가
- * 500으로 떨어져 빨간불이 된다.
+ * 필터가 **무엇을 잡는가**는 external-service.filter.nest.spec.ts가 이미 고정한다.
+ * 여기서 보는 것은 **configureApp을 부르면 그게 붙는가** 하나다 — 파이프와 필터
+ * 양쪽을 한 건씩만 태운다.
  */
 
-@Controller('__test')
-class ThrowingController {
-  @Get('quota')
+class EchoDto {
+  @IsString()
+  name!: string;
+}
+
+@Controller()
+class WiringProbeController {
+  /** 필터가 붙어 있지 않으면 500 + "Internal server error"가 된다. */
+  @Get('wiring/quota')
   quota(): never {
     throw new ExternalServiceError('gemini', 'quota', '쿼터 소진');
   }
 
-  @Get('not-found')
-  notFound(): never {
-    throw new ExternalServiceError('qdrant', 'not-found', '컬렉션 없음');
+  /** ValidationPipe가 붙어 있지 않으면 400이 아니라 201이 된다. */
+  @Post('wiring/echo')
+  echo(@Body() dto: EchoDto): { name: string } {
+    return { name: dto.name };
   }
 }
 
-describe('ExternalServiceFilter 전역 배선 (e2e)', () => {
-  let app: INestApplication<App>;
+describe('configureApp 전역 배선 (e2e)', () => {
+  let app: INestApplication;
+  let server: Server;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      controllers: [ThrowingController],
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      controllers: [WiringProbeController],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleRef.createNestApplication();
     // main.ts가 부르는 것과 같은 함수다. 진입 경로가 둘이면 같은 함수를
     // 재사용하게 만든다(circuit-breaker-entry-paths.md).
     configureApp(app);
     await app.init();
+    server = app.getHttpServer() as Server;
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     await app.close();
   });
 
-  it('quota는 503 + Retry-After로 나간다', async () => {
-    const response = await request(app.getHttpServer()).get('/__test/quota');
+  it('configureApp이 ExternalServiceFilter를 붙인다', async () => {
+    const res = await request(server).get('/wiring/quota');
 
-    expect(response.status).toBe(503);
-    expect(response.headers['retry-after']).toBe('60');
-    expect(response.body).toMatchObject({ statusCode: 503, error: 'quota' });
+    expect(res.status).toBe(503);
+    expect(res.headers['retry-after']).toBe('60');
+    const body = res.body as { error?: unknown };
+    expect(body.error).toBe('quota');
   });
 
-  it('not-found는 500으로 나간다', async () => {
-    // 같은 예외 타입이 kind에 따라 다른 상태로 나가는지 — 필터가 붙어 있지
-    // 않으면 둘 다 500 + "Internal server error"가 되어 이 짝이 무너진다.
-    const response = await request(app.getHttpServer()).get('/__test/not-found');
+  it('configureApp이 ValidationPipe를 붙인다', async () => {
+    // 필터만 확인하면 파이프 배선이 사라져도 초록불이다. 같은 함수가 붙이는 것을
+    // 둘 다 태운다.
+    const res = await request(server).post('/wiring/echo').send({ name: 123 });
 
-    expect(response.status).toBe(500);
-    expect(response.body).toMatchObject({ statusCode: 500, error: 'not-found' });
-    expect(response.headers['retry-after']).toBeUndefined();
+    expect(res.status).toBe(400);
   });
 });
 ```
@@ -3813,11 +3973,20 @@ Expected: PASS 전부.
 **그다음 배선이 실제로 감시되는지 확인한다.** 이 확인 없이는 F-5가 해소됐다고 적을 수 없다 — 테스트를 추가하는 것과 테스트가 그 줄을 태우는 것은 다르다.
 
 ```bash
-# app.setup.ts의 useGlobalFilters 한 줄을 임시로 주석 처리한 뒤
+# 1) app.setup.ts의 useGlobalFilters 한 줄을 임시로 주석 처리한 뒤
+npm run test:e2e
+# 2) 원복하고, 이번엔 useGlobalPipes 블록을 임시로 주석 처리한 뒤
 npm run test:e2e
 ```
 
-Expected: **FAIL** — `ExternalServiceFilter 전역 배선 (e2e)` 2건이 500 + `Internal server error`로 떨어진다. 통과하면 테스트가 배선을 태우지 못하는 것이니 원인을 찾는다. **확인 후 반드시 원복하고 다시 PASS를 확인한다.**
+Expected — **두 번 다 FAIL이어야 한다.**
+
+| 지운 줄 | 실패해야 하는 케이스 |
+|---|---|
+| `useGlobalFilters` | `configureApp이 ExternalServiceFilter를 붙인다` — 503이 아니라 500 + `Internal server error` |
+| `useGlobalPipes` | `configureApp이 ValidationPipe를 붙인다` — 400이 아니라 201 |
+
+한쪽이라도 통과하면 그 배선은 여전히 감시되지 않는 것이니 원인을 찾는다. **확인 후 반드시 원복하고 다시 PASS를 확인한다.**
 
 - [ ] **Step 9: 커밋**
 
@@ -3840,7 +4009,7 @@ e2e가 env 없이 죽기 때문이다. 나누면 중간 커밋에서 e2e가 빨�
 배선이 main.ts 안에만 있으면 어떤 테스트도 그 줄을 태우지 못한다 — e2e는
 bootstrap()을 거치지 않고 단위 spec은 ArgumentsHost를 위조하므로, 배선을
 지워도 전 스위트가 초록불이었다. 그 상태로 배포되면 모든 kind가 500이 되고
-에러 처리 표 19행이 통째로 무효가 된다."
+에러 처리 표 19행이 통째로 무효가 된다." -- backend/src/config/env.validation.ts backend/src/config/env.validation.spec.ts backend/src/app.module.ts backend/src/app.setup.ts backend/src/main.ts backend/.env.example backend/test/setup-env.ts backend/test/jest-e2e.json backend/test/external-service.e2e-spec.ts
 ```
 
 ---
@@ -3922,7 +4091,7 @@ message: string[]}를 모두 낸다. 키 이름이 같고 의미와 타입이 �
 message를 문자열로 가정하면 검증 실패 응답에서 죽는다. 지금은 소비자가 없어
 충돌이 안 보이는데, 붙는 시점에는 이 사실을 아는 사람이 없다.
 
-없앨 수 없으니 관리한다 — 이 표가 상시로 작동하는 유일한 방어선이다."
+없앨 수 없으니 관리한다 — 이 표가 상시로 작동하는 유일한 방어선이다." -- .claude/skills/tb-tdd-implement/references/workspaces.md
 ```
 
 ---
