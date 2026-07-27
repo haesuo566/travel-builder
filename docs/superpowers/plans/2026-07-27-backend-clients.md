@@ -34,12 +34,20 @@
 
 초판대로 구현했다면 **모든 Qdrant 실패가 `upstream`(502)으로 떨어져** `not-found`·`dimension-mismatch`가 영영 나오지 않았고, TEI 분류기는 컴파일되지 않았다.
 
-### 묶음 A 결과 중 뒤 태스크가 알아야 할 것
+### 묶음 A·B 결과 중 뒤 태스크가 알아야 할 것
+
+**묶음 A (공통 기반)**
 
 - **`callExternal`이 `classify` 호출을 `try/catch`로 감싼다**(`aeed5f4`, `classifySafely`). 분류기가 던지면 `null`로 취급돼 공통 판정으로 흐르고, 던졌다는 사실은 별도 로그로 남는다. → Task 7·10의 분류기는 이 보호 위에서 동작한다. **다만 이걸 설계 근거로 삼지 말 것** — 최후 방어선이지 "분류기는 대충 써도 된다"는 허가가 아니다. 분류기가 던지면 그 호출은 원래 kind를 잃고 `upstream`으로 떨어진다
 - **`causeMessage`가 cause 체인을 펼치고 `AggregateError`까지 한 겹 벗긴다**(`1d9340f`). TEI는 raw `fetch`를 쓰므로 묶음 D의 실패 로그가 `fetch failed ← connect ECONNREFUSED 127.0.0.1:9` 형태로 나온다 — 로그를 문자열로 단정하는 테스트를 쓸 때 이 형태를 전제한다
 - **`causeMessage`·`unwrapCauses`가 `instanceof`를 버리고 덕 타이핑을 쓴다**(`26ad606`, 신규 N-1). jest의 vm 샌드박스는 자기 realm의 `Error`를 갖는데 실제 `fetch` 오류는 undici가 호스트 realm에서 만들어 `instanceof`만 어긋난다. **`instanceof`가 남아 있는 곳은 우리가 직접 만드는 클래스뿐**이다(`ExternalServiceError`, 그리고 Task 10이 만들 `TeiHttpError`) — 이건 realm이 갈릴 수 없으므로 안전하다. **외부에서 온 오류를 `instanceof`로 판정하지 않는다**가 규칙이다
 - **묶음 E로 이월된 지적 2건**이 있다: F-5(Major, Task 12) · F-6(Minor, Task 13). 각 태스크에 명시했고 묶음 E 리뷰가 해소 여부를 판정한다
+
+**묶음 B (Gemini)**
+
+- **`@google/genai`는 중단 시 네이티브 `DOMException`(`name: 'AbortError'`)을 감싸지 않고 그대로 재던진다.** 비-`Error` reject만 `new Error('exception … sending request', { cause: e })`로 감싼다(`src/_api_client.ts`). 전자는 **호스트 realm 객체**이므로 `classifyCommonFailure`가 `name`을 덕 타이핑으로 보는 현재 구현이 정확히 맞다 — `instanceof`였다면 jest 안에서만 판정이 어긋났을 것이다. **TEI는 raw `fetch`라 같은 상황을 SDK보다 자주 만난다**(중단·연결 거부가 전부 undici가 만든 객체다). Task 10·11이 `TeiHttpError`만 `instanceof`로 보고 나머지를 `null`로 흘리는 근거가 이것이다
+- **`AbortSignal.timeout`은 jest에서 열린 핸들 경고를 내지 않는다** (unref된 타이머). Task 11의 TEI 타임아웃도 같은 방식(`AbortSignal.timeout(TEI_TIMEOUT_MS)`)을 그대로 쓴다 — 계획에 이미 그렇게 적혀 있고, 우회 수단을 찾을 이유가 없다
+- **`ExternalService` 유니온에 `'tei'`가 아직 없다** (계획대로 **Task 11** 몫). Task 10(`tei.errors.ts`)은 `ExternalFailureKind`만 import하고 `'tei'` 리터럴을 쓰지 않으므로 유니온 없이도 컴파일된다 — 순서 조정이 필요 없다. 다만 **묶음 D를 Task 10부터 순서대로 실행해야 한다.** Task 11의 코드(클라이언트·spec)를 먼저 쓰면 `'tei'`가 `ExternalService`에 없어 컴파일이 깨진다. Task 11의 Step 3이 유니온 추가를 **첫 항목**으로 두고 있으니 그 순서를 지킨다
 
 ### 남아 있는 미해결 질문 (spec이 인지하고 올린 것 — 계획 구멍 아님)
 
@@ -81,6 +89,27 @@ spec `#### 추가 미해결 질문` **5. Qdrant 429를 `quota`로 올릴 것인�
       return String(spy.mock.calls[call][0]);
     }
     ```
+- **중첩 `expect.objectContaining`을 쓸 수 없다.** `objectContaining`은 `any`를 반환하므로, 그 결과가 객체 리터럴의 속성으로 들어가는 순간 `@typescript-eslint/no-unsafe-assignment`(**error**)에 걸린다. 위에서 타입을 준 mock일수록 확실히 걸린다.
+
+  ```ts
+  // ✗ 린트 실패 — 안쪽 objectContaining이 any를 반환해 config 속성에 대입된다
+  expect(generateContent).toHaveBeenCalledWith(
+    expect.objectContaining({ config: expect.objectContaining({ temperature: 0.7 }) }),
+  );
+
+  // ✓ mock.calls를 구조분해해 필드별로 단정한다
+  const [params] = generateContent.mock.calls[0];
+  expect(params.model).toBe('gemini-2.0-flash');
+  expect(params.config?.temperature).toBe(0.7);
+  ```
+
+  **이건 결함이 아니라 타입 있는 mock이 제대로 작동한다는 증거다.** `as { ... }` 캐스팅이었다면 조용히 통과했을 것이고, 그 통과가 바로 우리가 없애려던 것이다 — **"린트가 막으니 캐스팅으로 돌아가자"는 정확히 반대 방향이다.** 필드별 단정이 오타·타입 어긋남을 컴파일에서 잡으므로 검증도 더 강하다.
+
+  최상위 한 겹(`toHaveBeenCalledWith(expect.objectContaining({ 리터럴만 }))`)은 `no-unsafe-assignment`에는 걸리지 않는다 — `any`가 객체 리터럴 속성에 대입되지 않기 때문이다. 다만 **타입 있는 mock의 인자 자리라면 `no-unsafe-argument`(warn)가 뜬다.** `npm run lint`는 통과시키지만 리뷰 게이트는 `--max-warnings=0`으로 돈다. 같은 이유로 `expect.anything()`도 타입 있는 인자 자리에 쓰지 않는다.
+
+  → **타입 있는 mock에는 `toHaveBeenCalledWith` 대신 `mock.calls` 구조분해 + 필드별 단정을 기본형으로 쓴다.** `objectContaining`은 untyped mock(`jest.Mock`으로 캐스팅한 SDK 생성자, Nest `Logger` spy 등)에만 남긴다.
+
+  > 완료된 Task 5의 코드 블록에는 이 규칙이 반영되기 전의 중첩 형태가 남아 있다. 묶음 B 구현자가 필드별 단정으로 바꿔 커밋했고 그 이탈이 journal에 기록돼 있다 — **계획 블록이 아니라 커밋된 코드가 기준이다.**
 - **절대 하지 않을 것**
   - core를 의존성으로 끌어오지 않는다 (`file:../core` 금지). core 파일을 복사해 오지도 않는다.
   - 생성자·`onModuleInit`에서 네트워크를 만지지 않는다. core의 `QdrantStore.connect()` 패턴을 가져오지 않는다.
@@ -2006,13 +2035,25 @@ import { QdrantSearchClient } from './qdrant.client';
 
 /**
  * core가 vi.mock("@qdrant/js-client-rest")로 잡는 것과 같은 자리를 jest.mock으로 잡는다.
- * 이 경계는 SDK 옵션 이름의 오타를 잡지 못한다(with_payload를 withPayload로 써도
- * mock은 통과시킨다) — 그 구멍은 검증 계획의 실측으로만 메워진다.
+ *
+ * 인자 타입을 SDK 메서드 시그니처에 묶는다. spec은 SDK 경계 모킹이 옵션 이름의
+ * 오타를 못 잡는다고 적었지만(with_payload를 withPayload로 써도 mock은 통과),
+ * Parameters<QdrantClient['query']>로 묶으면 그 오타가 컴파일에서 걸린다.
+ * 런타임 동작(SDK가 그 옵션을 실제로 어떻게 쓰는가)의 구멍은 여전히 실측 몫이다.
+ *
+ * 반환 타입은 SDK의 전체 응답 타입이 아니라 우리가 읽는 필드만 적는다.
  */
-
 const QdrantClientMock = QdrantClient as unknown as jest.Mock;
-const query = jest.fn();
-const getCollection = jest.fn();
+
+const query = jest.fn<
+  Promise<{ points: unknown[] }>,
+  Parameters<QdrantClient['query']>
+>();
+
+const getCollection = jest.fn<
+  Promise<{ config?: { params?: { vectors?: unknown } } }>,
+  Parameters<QdrantClient['getCollection']>
+>();
 
 const VECTOR = [0.1, 0.2, 0.3];
 
@@ -2107,7 +2148,9 @@ describe('QdrantSearchClient.search', () => {
     const client = await createClient();
     await client.search(VECTOR);
 
-    expect(query).toHaveBeenCalledWith('tour_contents', expect.anything());
+    // expect.anything()을 쓰지 않는다 — any를 타입 있는 인자 자리에 넣으면
+    // no-unsafe-argument 경고가 뜨고, 리뷰 게이트는 --max-warnings=0으로 돈다.
+    expect(query.mock.calls[0][0]).toBe('tour_contents');
   });
 
   it('QDRANT_COLLECTION이 있으면 그 값을 쓴다', async () => {
@@ -2117,7 +2160,7 @@ describe('QdrantSearchClient.search', () => {
     });
     await client.search(VECTOR);
 
-    expect(query).toHaveBeenCalledWith('tour_v2', expect.anything());
+    expect(query.mock.calls[0][0]).toBe('tour_v2');
   });
 
   it('with_payload를 true로 보내고 with_vector는 보내지 않는다', async () => {
@@ -2126,7 +2169,9 @@ describe('QdrantSearchClient.search', () => {
     const client = await createClient();
     await client.search(VECTOR);
 
-    const request = query.mock.calls[0][1] as Record<string, unknown>;
+    // 캐스팅이 없다. 인자 타입이 SDK 시그니처라 with_payload를 withPayload로
+    // 잘못 쓰면 구현 쪽에서 컴파일이 깨진다.
+    const [, request] = query.mock.calls[0];
     expect(request.with_payload).toBe(true);
     expect('with_vector' in request).toBe(false);
   });
@@ -2165,7 +2210,7 @@ describe('QdrantSearchClient.search', () => {
     const client = await createClient();
     await client.search(VECTOR);
 
-    const request = query.mock.calls[0][1] as Record<string, unknown>;
+    const [, request] = query.mock.calls[0];
     expect('filter' in request).toBe(false);
   });
 
@@ -2175,11 +2220,12 @@ describe('QdrantSearchClient.search', () => {
 
     const hits = await client.search(VECTOR);
     expect(hits).toHaveLength(2);
-    expect(hits[0]).toEqual({
-      id: 1,
-      score: 0.9,
-      payload: expect.objectContaining({ contentid: '1', title: '관광지 1' }),
-    });
+    // 중첩 objectContaining을 쓰지 않는다(Global Constraints 참조).
+    // 반환 타입이 TourSearchHit[]라 필드별 단정이 오히려 더 정확하다.
+    expect(hits[0].id).toBe(1);
+    expect(hits[0].score).toBe(0.9);
+    expect(hits[0].payload.contentid).toBe('1');
+    expect(hits[0].payload.title).toBe('관광지 1');
   });
 
   it('hit 0건은 빈 배열을 반환하고 throw하지 않는다', async () => {
