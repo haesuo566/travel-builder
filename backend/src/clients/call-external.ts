@@ -69,13 +69,25 @@ function maskSecrets(text: string): string {
 function causeMessage(error: unknown): string {
   const parts: string[] = [];
   for (const item of unwrapCauses(error)) {
-    if (!(item instanceof Error)) continue;
-    if (item.message) parts.push(item.message);
+    // instanceof를 쓰지 않는다. jest의 vm 샌드박스는 자기 realm의 Error를 갖는데
+    // 실제 fetch 오류는 Node 내부(undici)가 호스트 realm에서 만들어,
+    // message·code는 멀쩡한 채 instanceof만 어긋난다. 그러면 테스트 안에서만
+    // 로그가 껍데기("fetch failed")로 남아 운영과 결과가 갈린다.
+    // 덕 타이핑은 realm과 무관하고, Error가 아니면서 message를 갖는
+    // 유사 오류(SDK가 던지는 것들)도 함께 건진다.
+    const message = (item as { message?: unknown }).message;
+    if (typeof message === 'string' && message) parts.push(message);
+
     // 듀얼스택 localhost는 AggregateError의 message가 빈 문자열이고
     // 주소·포트가 errors[0]에만 있다. 한 겹 벗기는 것만으로는 못 얻는다.
-    if (item instanceof AggregateError) {
-      const [first] = item.errors as unknown[];
-      if (first instanceof Error && first.message) parts.push(first.message);
+    const errors = (item as { errors?: unknown }).errors;
+    if (Array.isArray(errors)) {
+      const first = (errors as unknown[])[0];
+      const firstMessage = (first as { message?: unknown } | undefined)
+        ?.message;
+      if (typeof firstMessage === 'string' && firstMessage) {
+        parts.push(firstMessage);
+      }
     }
   }
 

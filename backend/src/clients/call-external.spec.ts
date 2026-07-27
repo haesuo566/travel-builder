@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { createServer } from 'net';
 
 import { callExternal, classifyCommonFailure } from './call-external';
 import { ExternalServiceError } from './external-service.error';
@@ -25,6 +26,20 @@ function allLogMessages(spy: jest.SpyInstance): string[] {
 
 function firstLogMessage(spy: jest.SpyInstance): string {
   return allLogMessages(spy)[0];
+}
+
+/**
+ * 실제로 닫혀 있는 로컬 포트를 얻는다.
+ * 서버를 0번 포트로 띄워 번호를 받은 뒤 닫아, 그 번호가 확실히 비어 있게 한다 —
+ * 임의의 높은 포트를 찍으면 드물게 다른 프로세스와 부딪친다.
+ */
+async function closedLocalPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
 }
 
 /** spec이 앞으로 만들 classifier들은 unknown을 좁히지 않고 프로퍼티를 탄다 — 즉 던질 수 있다. */
@@ -433,6 +448,29 @@ describe('callExternal', () => {
     expect(firstLogMessage(errorLog)).toContain(
       'connect ECONNREFUSED ::1:59999',
     );
+  });
+
+  /**
+   * 합성 오류만으로는 부족하다.
+   * 위 두 테스트는 TypeError를 테스트 realm 안에서 직접 만들기 때문에
+   * instanceof가 참이다. 실제 fetch 오류는 Node 내부(undici)가 호스트 realm에서
+   * 만들고, jest의 vm 샌드박스는 자기 realm의 Error를 갖는다 —
+   * instanceof만 어긋나고 message·code는 멀쩡하다.
+   * 이 테스트가 없으면 합성 대역만 검증하고 운영과 다른 결과를 못 본다.
+   */
+  it('실제 fetch 실패도 체인을 펼친다', async () => {
+    const port = await closedLocalPort();
+
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      fetch(`http://127.0.0.1:${port}/collections`),
+    ).catch(() => undefined);
+
+    const logged = firstLogMessage(errorLog);
+    // 판정은 code 프로퍼티 접근이라 realm과 무관하다 — 이쪽은 원래 정상이다.
+    expect(logged).toContain('unavailable');
+    // 로그 메시지도 같아야 한다. 껍데기(fetch failed)만 남으면 안 된다.
+    expect(logged).toContain('ECONNREFUSED');
+    expect(logged).toContain(String(port));
   });
 
   it('비-Error를 던져도 값이 로그에 남는다', async () => {
