@@ -78,6 +78,41 @@ describe('classifyGeminiFailure', () => {
     expect(classifyGeminiFailure(null)).toBeNull();
   });
 
+  it('status가 없고 code에 숫자가 있으면 그것을 상태로 읽는다', () => {
+    // 스트리밍 경로는 HTTP 상태가 아니라 응답 본문의 code로 ApiError를 만든다.
+    // 이 분기가 없으면 그 경로의 오류가 전부 상태 없는 것으로 취급된다.
+    expect(classifyGeminiFailure({ code: 429, message: '오류' })).toBe('quota');
+    expect(classifyGeminiFailure({ code: 404, message: '오류' })).toBe(
+      'not-found',
+    );
+  });
+
+  it('code가 숫자가 아니면 상태로 읽지 않는다', () => {
+    // Node의 시스템 오류는 code에 'ECONNREFUSED' 같은 문자열을 담는다. 타입 확인 없이
+    // 상태로 읽으면 문자열 '503'이 비교 연산에서 숫자로 강제 변환돼 네트워크 단절이
+    // Gemini의 5xx 응답으로 둔갑한다 — 숫자 문자열이라야 이 실수가 드러난다.
+    expect(classifyGeminiFailure({ code: '503', message: '오류' })).toBeNull();
+    expect(
+      classifyGeminiFailure({ code: 'ECONNREFUSED', message: '연결 거부' }),
+    ).toBeNull();
+  });
+
+  it('문자열을 던진 경우 그 문자열을 메시지로 읽는다', () => {
+    // 3단계 판정이 살아 있는지. null만 확인하면 ''를 반환하는 구현과 구별되지 않는다.
+    expect(classifyGeminiFailure('RESOURCE_EXHAUSTED: 할당량 초과')).toBe(
+      'quota',
+    );
+  });
+
+  it('message가 문자열이 아니면 빈 메시지로 취급한다', () => {
+    // 문자열이 아닌 message를 String()으로 밀어 넣으면 배열·객체 안의 값이
+    // 정규식에 노출된다. G-1과 같은 종류의 실수라 배열로 확인한다 —
+    // String(['API key not valid'])는 따옴표 없이 그대로 매칭된다.
+    expect(
+      classifyGeminiFailure({ message: ['API key not valid'] }),
+    ).toBeNull();
+  });
+
   it('AbortError를 자기 것으로 판정하지 않는다', () => {
     // 중단은 공통 판정의 몫이다. 여기서 잡으면 같은 실패가 두 곳에서 분류된다.
     const aborted = Object.assign(new Error('중단됨'), { name: 'AbortError' });

@@ -149,6 +149,18 @@ describe('GeminiClient', () => {
     );
   });
 
+  it('systemInstruction·temperature 미지정 시 undefined를 넘긴다', async () => {
+    // 지정 시 전달만 보면 "언제나 넘긴다"와 "지정했을 때만 넘긴다"를 구별하지
+    // 못한다. 여기에 빈 문자열이나 0이 들어가면 SDK가 그것을 유효한 설정으로
+    // 받아 모델 동작이 조용히 달라진다.
+    const client = await createClient();
+    await client.generate('안녕');
+
+    const [params] = generateContent.mock.calls[0];
+    expect(params.config?.systemInstruction).toBeUndefined();
+    expect(params.config?.temperature).toBeUndefined();
+  });
+
   it('abortSignal을 SDK에 전달한다', async () => {
     // 빠뜨리면 20초 타임아웃이 통째로 사라지고 아무 테스트도 깨지지 않는다.
     const client = await createClient();
@@ -159,6 +171,17 @@ describe('GeminiClient', () => {
     const { config } = generateContent.mock.calls[0][0];
     expect(config?.abortSignal).toBeInstanceOf(AbortSignal);
     expect(config?.abortSignal?.aborted).toBe(false);
+  });
+
+  it('타임아웃을 20초로 요청한다', async () => {
+    // 신호의 존재만 보면 20초가 200ms가 돼도 통과한다. AbortSignal은 남은 시간을
+    // 노출하지 않고, AbortSignal.timeout의 타이머는 Node 내부라 jest 가짜 타이머가
+    // 가로채지 못한다 — 그래서 경과가 아니라 요청한 값을 본다.
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+    const client = await createClient();
+    await client.generate('안녕');
+
+    expect(timeout).toHaveBeenCalledWith(20_000);
   });
 
   it('응답 텍스트를 그대로 반환한다', async () => {
