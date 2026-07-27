@@ -251,8 +251,11 @@ describe('callExternal', () => {
   });
 
   it('로그에 API 키 문자열이 남지 않는다', async () => {
+    // 키를 쿼리스트링에 넣지 않는다. `?key=AIza…` 형태는 Gemini 키 규칙과
+    // 쿼리 파라미터 규칙 양쪽에 걸려 서로의 부재를 가려 준다 —
+    // 어느 한쪽을 지워도 나머지가 대신 마스킹해 초록불이 유지된다.
     const leaky = new Error(
-      `요청 실패: https://generativelanguage.googleapis.com/v1beta/models?key=${FAKE_API_KEY}`,
+      `요청 실패: API key ${FAKE_API_KEY} is invalid (INVALID_ARGUMENT)`,
     );
     await callExternal('gemini', 'generateContent', alwaysNull, () =>
       Promise.reject(leaky),
