@@ -14,14 +14,23 @@ const FAKE_API_KEY = 'AIzaSyA1234567890abcdefghijklmnopqrstuv';
 const alwaysNull = (): null => null;
 
 /**
- * 첫 로그 호출의 메시지.
+ * 로그 호출들의 메시지.
  * jest.SpyInstance의 mock.calls 원소는 any로 추론돼 no-unsafe-member-access에 걸린다.
  * unknown을 거쳐 좁힌다.
  */
-function firstLogMessage(spy: jest.SpyInstance): string {
+function allLogMessages(spy: jest.SpyInstance): string[] {
   const calls = spy.mock.calls as unknown as unknown[][];
-  return String(calls[0][0]);
+  return calls.map((args) => String(args[0]));
 }
+
+function firstLogMessage(spy: jest.SpyInstance): string {
+  return allLogMessages(spy)[0];
+}
+
+/** spec이 앞으로 만들 classifier들은 unknown을 좁히지 않고 프로퍼티를 탄다 — 즉 던질 수 있다. */
+const throwingClassifier = (): never => {
+  throw new TypeError("Cannot read properties of undefined (reading 'status')");
+};
 
 describe('classifyCommonFailure', () => {
   it('AbortError를 timeout으로 판정한다', () => {
@@ -146,6 +155,66 @@ describe('callExternal', () => {
     ).catch((error: unknown) => error);
 
     expect((failure as ExternalServiceError).kind).toBe('upstream');
+  });
+
+  /**
+   * 분류기는 호출자가 주입하는 임의 콜백이고 catch 안에서 불린다.
+   * 무방비로 두면 던지는 순간 원본 오류가 소멸하고 로그도 남지 않으며
+   * @Catch(ExternalServiceError)에도 걸리지 않아 무로그 500이 된다.
+   * 단일 통로가 통째로 뚫리므로 통로 쪽에서 막는다.
+   */
+  it('classify가 던져도 ExternalServiceError로 감싸고 원본을 cause에 남긴다', async () => {
+    const original = new Error('원본 실패');
+    const failure = await callExternal(
+      'qdrant',
+      'query',
+      throwingClassifier,
+      () => Promise.reject(original),
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ExternalServiceError);
+    const external = failure as ExternalServiceError;
+    expect(external.kind).toBe('upstream');
+    // 분류기의 TypeError가 아니라 원본이 cause여야 한다.
+    expect(external.cause).toBe(original);
+  });
+
+  it('classify가 던져도 공통 판정은 계속 동작한다', async () => {
+    // 분류기 예외를 upstream으로 고정해 버리면 timeout·unavailable 판정이 함께 죽는다.
+    const aborted = Object.assign(new Error('중단됨'), { name: 'AbortError' });
+    const failure = await callExternal(
+      'qdrant',
+      'query',
+      throwingClassifier,
+      () => Promise.reject(aborted),
+    ).catch((error: unknown) => error);
+
+    expect((failure as ExternalServiceError).kind).toBe('timeout');
+  });
+
+  it('분류기가 던진 사실이 별도 로그로 남는다', async () => {
+    // 삼키기만 하면 분류기 버그가 영원히 보이지 않는다.
+    await callExternal('qdrant', 'query', throwingClassifier, () =>
+      Promise.reject(new Error('원본 실패')),
+    ).catch(() => undefined);
+
+    const logs = allLogMessages(errorLog);
+    expect(logs.some((line) => line.includes('분류기'))).toBe(true);
+    // 원인 실패 자체의 로그도 사라지지 않는다.
+    expect(logs.some((line) => line.includes('원본 실패'))).toBe(true);
+  });
+
+  it('분류기 예외 로그에도 마스킹이 걸린다', async () => {
+    const leakyClassifier = (): never => {
+      throw new Error('분류 실패: ?api-key=classifier-secret-9');
+    };
+    await callExternal('qdrant', 'query', leakyClassifier, () =>
+      Promise.reject(new Error('원본 실패')),
+    ).catch(() => undefined);
+
+    expect(allLogMessages(errorLog).join('\n')).not.toContain(
+      'classifier-secret-9',
+    );
   });
 
   it('quota는 warn으로, 나머지는 error로 남긴다', async () => {

@@ -65,6 +65,32 @@ function causeMessage(error: unknown): string {
 }
 
 /**
+ * 서비스별 판정기를 방어적으로 호출한다.
+ *
+ * classify는 호출자가 주입하는 임의 콜백이고 catch 안에서 불린다. 무방비로 두면
+ * 던지는 순간 원본 오류가 소멸하고, 로그도 남지 않으며, @Catch(ExternalServiceError)에
+ * 걸리지 않아 무로그 500이 된다 — 단일 통로가 통째로 뚫린다.
+ *
+ * 던지면 판정 실패(null)로 취급해 공통 판정으로 흘려보내되, 던졌다는 사실 자체는
+ * 남긴다. 삼키기만 하면 판정기 버그가 영원히 보이지 않는다.
+ */
+function classifySafely(
+  service: ExternalService,
+  operation: string,
+  classify: FailureClassifier,
+  error: unknown,
+): ExternalFailureKind | null {
+  try {
+    return classify(error);
+  } catch (classifierError) {
+    logger.error(
+      `${service} ${operation} 실패 분류기가 예외를 던졌다: ${causeMessage(classifierError)}`,
+    );
+    return null;
+  }
+}
+
+/**
  * 외부 SDK·fetch 호출의 유일한 통로.
  * 클라이언트 메서드가 SDK를 직접 호출하는 것을 금지한다 —
  * 진입 경로가 둘이 되면 분류도 로그도 한쪽에서만 동작한다.
@@ -86,7 +112,9 @@ export async function callExternal<T>(
         ? error
         : new ExternalServiceError(
             service,
-            classify(error) ?? classifyCommonFailure(error) ?? 'upstream',
+            classifySafely(service, operation, classify, error) ??
+              classifyCommonFailure(error) ??
+              'upstream',
             `${service} ${operation} 실패`,
             { cause: error },
           );
