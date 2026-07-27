@@ -48,6 +48,14 @@ function statusOf(error: unknown): number | null {
  * 본문 문구로 가르기 시작하면 TEI 버전이 문구를 바꿀 때 조용히 어긋난다.
  */
 function classifyByStatus(status: number): ExternalFailureKind {
+  // 엔드포인트 경로 오설정(TEI_BASE_URL의 경로 부분이 틀림). 경로
+  // `{TEI_BASE_URL}/embed`는 코드가 고정하므로 404는 요청 내용과 무관하게
+  // 재현되는 배선 불일치다 — 모델명 오타·컬렉션 이름 오타와 같은 종류의
+  // 우리 설정 문제라 not-found(500)로 끊는다. upstream(502)으로 두면
+  // TEI는 멀쩡한데 그 응답을 받은 사람이 TEI 장애를 조사하게 된다.
+  if (status === 404) {
+    return 'not-found';
+  }
   // 입력이 모델 제약을 벗어난 경우. truncate: true라 흔치 않다.
   if (status === 400 || status === 413 || status === 422) {
     return 'invalid-request';
@@ -64,7 +72,10 @@ function classifyByStatus(status: number): ExternalFailureKind {
  * TeiHttpError가 아니라는 뜻이고, 그건 fetch가 던진 것(연결 거부·중단)이라
  * classifyCommonFailure의 몫이다. 여기서 가로채면 같은 실패가 두 곳에서 분류된다.
  *
- * auth·quota·not-found는 TEI에 없다 — 자체 호스팅이고 인증이 없다.
+ * auth·quota는 TEI에 없다 — 자체 호스팅이고 인증이 없다. not-found는 있다 —
+ * 엔드포인트 경로(`{TEI_BASE_URL}/embed`)가 코드로 고정돼 있어 404는 TEI
+ * 자체가 아니라 우리 `.env`의 경로 오설정을 가리키기 때문이다(review-CD.md
+ * Minor 3, spec :628의 "같은 종류 오설정은 같은 kind" 원칙).
  * 서비스마다 쓰는 kind가 다른 것은 결함이 아니라, 이 타입이 서비스별 API가 아니라
  * 책임 귀속의 어휘라는 증거다.
  */

@@ -63,8 +63,17 @@ describe('classifyTeiFailure', () => {
   });
 
   it('분류되지 않은 비-2xx는 upstream이다', () => {
-    expect(classifyTeiFailure(new TeiHttpError(404, ''))).toBe('upstream');
     expect(classifyTeiFailure(new TeiHttpError(418, ''))).toBe('upstream');
+  });
+
+  it('404는 not-found다 — 엔드포인트 경로 오설정', () => {
+    // review-CD.md Minor 3. 위 케이스가 404까지 묶어 upstream(502)으로
+    // 못박고 있었다 — TEI_BASE_URL 경로 오설정(예: 끝에 /v1을 더 붙임)으로
+    // 404가 나면 TEI는 멀쩡한데 그 응답과 로그를 받은 사람은 TEI 장애를
+    // 조사하게 된다. spec :628(모델명 오타·컬렉션 이름 오타는 같은 종류의
+    // 오설정이므로 같은 kind)의 원칙을 엔드포인트 경로 오설정에도 적용한다 —
+    // Gemini 404(spec :626)·Qdrant 404와 같은 not-found(500)다.
+    expect(classifyTeiFailure(new TeiHttpError(404, ''))).toBe('not-found');
   });
 
   it('bodySnippet은 판정에 쓰이지 않는다', () => {
