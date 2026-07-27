@@ -122,6 +122,33 @@ describe('GeminiClient', () => {
     );
   });
 
+  it('GEMINI_MODEL이 빈 문자열이어도 기본값으로 폴백한다', async () => {
+    // ConfigService.get(key, default)는 undefined일 때만 폴백한다. core의
+    // optionalEnv(core/src/lib/env.ts:11-17)는 ''도 폴백하므로, 두 번째 인자를
+    // 쓰면 .env에 "GEMINI_MODEL="(값만 빈 줄) 한 줄로 같은 파일에서
+    // core는 돌고 backend만 죽는다. 빈 모델명이 그대로 SDK에 실려 404가 되는데
+    // 응답도 로그도 모델명이 비었다는 걸 말해주지 않는다.
+    const client = await createClient({
+      GEMINI_API_KEY: 'test-key',
+      GEMINI_MODEL: '',
+    });
+    await client.generate('안녕');
+
+    expect(generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-2.0-flash' }),
+    );
+  });
+
+  it('opts.model이 빈 문자열이어도 기본값으로 폴백한다', async () => {
+    // ?? 는 nullish라 ''를 거르지 않는다. env와 호출 인자 두 경로 모두 막는다.
+    const client = await createClient();
+    await client.generate('안녕', { model: '' });
+
+    expect(generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-2.0-flash' }),
+    );
+  });
+
   it('abortSignal을 SDK에 전달한다', async () => {
     // 빠뜨리면 20초 타임아웃이 통째로 사라지고 아무 테스트도 깨지지 않는다.
     const client = await createClient();

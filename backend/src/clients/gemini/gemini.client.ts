@@ -36,7 +36,11 @@ export class GeminiClient {
     this.client = new GoogleGenAI({
       apiKey: config.getOrThrow<string>('GEMINI_API_KEY'),
     });
-    this.defaultModel = config.get<string>('GEMINI_MODEL', DEFAULT_MODEL);
+    // ConfigService.get의 두 번째 인자(기본값)를 쓰지 않는다. 그 인자는 값이
+    // undefined일 때만 폴백해서 .env의 "GEMINI_MODEL="(값만 빈 줄)을 유효한 값으로
+    // 받는다. core의 optionalEnv는 ''도 폴백하므로 같은 .env로 core는 돌고
+    // backend만 죽는다. 모델 이름이 ''인 상황은 존재하지 않으니 ||가 안전하다.
+    this.defaultModel = config.get<string>('GEMINI_MODEL') || DEFAULT_MODEL;
   }
 
   /** 프롬프트로 텍스트를 생성한다. core의 generate와 같은 시그니처다. */
@@ -48,7 +52,8 @@ export class GeminiClient {
       classifyGeminiFailure,
       async () => {
         const response = await this.client.models.generateContent({
-          model: opts.model ?? this.defaultModel,
+          // ??가 아니라 ||다. nullish 연산자는 ''를 유효한 모델명으로 통과시킨다.
+          model: opts.model || this.defaultModel,
           contents: prompt,
           config: {
             systemInstruction: opts.systemInstruction,
