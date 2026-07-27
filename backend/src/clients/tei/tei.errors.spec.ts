@@ -75,6 +75,23 @@ describe('classifyTeiFailure', () => {
     ).toBe(classifyTeiFailure(new TeiHttpError(400, '')));
   });
 
+  it('bodySnippet의 숫자·토큰이 500 판정을 뒤집지 못한다', () => {
+    // 리뷰 지적(review-CD.md Minor 1): 위 동치 비교는 두 fixture 모두
+    // 400 + quota 무관 문구라 "본문에 quota 신호가 있으면 quota로 승격시키는"
+    // 변이를 넣어도 통과했다. 묶음 B의 1429852 결함(spec :1114)의 TEI판을
+    // 리터럴 단정으로 막는다 — 셋이 함께 quota로 바뀌면 위 동치 비교는
+    // 여전히 초록불이다.
+    expect(classifyTeiFailure(new TeiHttpError(500, ''))).toBe('upstream');
+    expect(
+      classifyTeiFailure(
+        new TeiHttpError(500, '{"error":"token count (1429852) exceeds limit"}'),
+      ),
+    ).toBe('upstream');
+    expect(
+      classifyTeiFailure(new TeiHttpError(500, 'RESOURCE_EXHAUSTED')),
+    ).toBe('upstream');
+  });
+
   it('TeiHttpError가 아닌 오류에는 null을 반환한다', () => {
     // fetch가 던진 것을 가로채지 않고 공통 판정에 넘기는지 보는 반대 방향 케이스다.
     // 음성 단정이므로 "가드를 지우면 실제로 다른 결과가 나오는" 값을 넣는다 —
