@@ -215,6 +215,19 @@ describe('GeminiClient', () => {
     expect(config?.abortSignal?.aborted).toBe(false);
   });
 
+  it('생성한 신호를 그대로 SDK에 넘긴다', async () => {
+    // 값과 존재를 따로 보면 "20초짜리를 만들어 놓고 다른 신호를 넘긴다"가 통과한다.
+    // toHaveBeenCalledWith(20_000)은 팩토리 호출만 보고, toBeInstanceOf·aborted는
+    // 아무 신호에나 참이다. 그 상태에서는 타임아웃이 통째로 죽어도 요청이
+    // 무한정 매달리는 것을 아무도 잡지 못한다.
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+    const client = await createClient();
+    await client.generate('안녕');
+
+    const { config } = generateContent.mock.calls[0][0];
+    expect(config?.abortSignal).toBe(timeout.mock.results[0].value);
+  });
+
   it('타임아웃을 20초로 요청한다', async () => {
     // 신호의 존재만 보면 20초가 200ms가 돼도 통과한다. AbortSignal은 남은 시간을
     // 노출하지 않고, AbortSignal.timeout의 타이머는 Node 내부라 jest 가짜 타이머가
