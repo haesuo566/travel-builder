@@ -1,9 +1,9 @@
 ---
 name: tb-harness
-description: travel-builder의 개발 파이프라인 오케스트레이터. plan(설계·계획) → work(TDD 구현) → review(reviewer-lite 단일 패스 기본, 고위험/명시 요청 시 정확성·계약·테스트품질 3축 병렬) → compound(학습 축적·하네스 갱신) 4단계를 전문 에이전트에게 분배해 조율한다. core/backend/frontend 어디든 기능 추가·변경·리팩터링·버그 수정 요청이 오면 반드시 이 스킬을 사용할 것. "이거 만들어줘", "기능 추가", "구현해줘", "고쳐줘", "리팩터링", "파이프라인 돌려줘" 같은 요청은 물론, "다시 실행", "재실행", "이어서 해줘", "리뷰만 다시", "계획만 수정", "이전 결과 기반으로 보완" 같은 후속 요청에도 이 스킬을 쓴다. 단순 질문·조회·설명 요청은 직접 답해도 된다.
+description: travel-builder의 개발 파이프라인 오케스트레이터. plan(설계·계획) → work(TDD 구현) → compound(학습 축적·하네스 갱신)가 기본 경로이고, review(reviewer-lite 단일 패스 기본, 고위험/명시 요청 시 정확성·계약·테스트품질 3축 병렬)는 사용자가 명시적으로 요청할 때만 끼워 넣는 옵션 단계다. core/backend/frontend 어디든 기능 추가·변경·리팩터링·버그 수정 요청이 오면 반드시 이 스킬을 사용할 것. "이거 만들어줘", "기능 추가", "구현해줘", "고쳐줘", "리팩터링", "파이프라인 돌려줘" 같은 요청은 물론, "다시 실행", "재실행", "이어서 해줘", "리뷰해줘", "review 포함해서 작업해줘", "리뷰만 다시", "계획만 수정", "이전 결과 기반으로 보완" 같은 후속 요청에도 이 스킬을 쓴다. 단순 질문·조회·설명 요청은 직접 답해도 된다.
 ---
 
-# tb-harness — plan → work → review → compound
+# tb-harness — plan → work → (review) → compound
 
 travel-builder의 모든 코드 변경이 지나가는 파이프라인. 이 스킬을 읽은 세션이 **오케스트레이터**다. 직접 구현하지 않는다 — 각 단계를 전문 에이전트에게 맡기고, 산출물을 잇고, 사용자 승인을 받는다.
 
@@ -13,13 +13,29 @@ travel-builder의 모든 코드 변경이 지나가는 파이프라인. 이 스�
 
 | 수단 | 용도 |
 |---|---|
-| `Agent` 도구 | 단계별 전문 에이전트 호출. **모든 호출에 `model: "opus"`를 명시한다** |
+| `Agent` 도구 | 단계별 전문 에이전트 호출. **모든 호출에 `model`을 명시한다** — 값은 아래 "단계별 모델 정책" 표를 따른다 |
 | 반환값 | 에이전트 → 오케스트레이터 결과 수집 |
 | 파일 (`.claude/_workspace/{run-id}/`) | 대용량 산출물·리뷰 보고서·저널 |
 | `TaskCreate` / `TaskUpdate` | 태스크 진행 상황을 사용자에게 노출 |
 | `SendMessage` | 이미 띄운 명명 에이전트를 컨텍스트 유지한 채 재호출 |
 
 `subagent_type`에는 `.claude/agents/`의 에이전트 이름을 넣는다(예: `"spec-architect"`). 이름이 해석되지 않으면 `"general-purpose"`로 띄우고, 프롬프트 첫 줄에 **`.claude/agents/{name}.md`를 먼저 읽으라**고 지시한다.
+
+## 단계별 모델 정책
+
+`~/CLAUDE.md`의 규칙 — **설계·아키텍처·복잡한 분석은 Opus, 구현·코드 작성·반복 수정은 Sonnet** — 을 파이프라인 단계에 대응시킨다.
+
+| 단계 | 에이전트 | 모델 | 왜 |
+|---|---|---|---|
+| Phase 1-1 | `spec-architect` | `opus` | 트레이드오프 비교와 결정이 산출물의 전부다 |
+| Phase 1-2 | `plan-writer` | `opus` | 태스크 분해와 묶음 경계는 설계 판단이다 |
+| Phase 2 | `implementer` | **`sonnet`** | 계획이 이미 시그니처까지 정해준 상태의 코드 작성이다 |
+| Phase 3 | `reviewer-lite` (또는 3축) | `opus` | 결함 판정은 분석이다. 여기서 놓치면 잡을 곳이 없다 |
+| Phase 4 | `compounder` | `opus` | 지적을 재사용 가능한 규칙으로 일반화하는 일이다 |
+
+**오케스트레이터 세션 모델도 같은 경계에서 바뀐다.** Phase 1은 Opus 세션에서, Phase 2부터는 Sonnet 세션에서 도는 것을 기본으로 하고, 전환 지점이 **게이트 2**다. 세션 모델은 오케스트레이터가 바꿀 수 없으므로 사용자에게 `/model` 전환을 요청하고 응답을 기다린다.
+
+**이것은 harness 메타 스킬의 "모든 에이전트에 `model: \"opus\"`" 규칙에서 의도적으로 벗어난 것이다.** 되돌리지 말 것 — 사용자의 상위 CLAUDE.md 규칙이 우선한다.
 
 ## 다른 스킬과의 관계
 
@@ -44,6 +60,7 @@ travel-builder의 모든 코드 변경이 지나가는 파이프라인. 이 스�
 | `_workspace/{run-id}/` 있음 + 사용자가 부분 수정 요청 | **부분 재실행** | 해당 Phase만. 아래 매트릭스 참조 |
 | `_workspace/{run-id}/` 있음 + 새 요구사항 | **새 실행** | 기존을 `_workspace/{run-id}_prev/`로 옮기고 Phase 1부터 |
 | 계획 문서에 미완료 체크박스가 남음 | **이어서 실행** | 남은 태스크 묶음부터 Phase 2 |
+| spec·plan은 있는데 커밋이 없음 + 사용자가 "진행"/"이어서" | **게이트 2 통과 처리** | Phase 1을 다시 돌리지 않는다. Phase 2부터 시작 (모델 전환 후 재개한 경우가 여기다) |
 
 **부분 재실행 매트릭스**
 
@@ -58,6 +75,19 @@ travel-builder의 모든 코드 변경이 지나가는 파이프라인. 이 스�
 **run-id**는 `{YYYY-MM-DD}-{slug}`. slug는 spec/plan 파일명과 동일하게 맞춘다.
 
 작업 디렉터리를 만든다: `.claude/_workspace/{run-id}/` — `journal.md`를 여기에 append한다.
+
+### review 포함 여부 — 기본은 생략 (2026-07-28부터)
+
+**기본은 review 생략** — Phase 1 → Phase 2 → 최종 검증 → Phase 4로 바로 간다. review는 아래 조건에서만 켠다.
+
+| 조건 | 처리 |
+|---|---|
+| 사용자가 review를 명시적으로 요청 (예: "리뷰해줘", "review 해줘", "리뷰 포함해서 작업해줘", "검토도 해줘", "꼼꼼히 봐줘") | Phase 3을 그대로 수행 |
+| 고위험 변경(결제·인증·삭제·마이그레이션 등)인데 사용자가 review를 요청하지 않음 | **자동으로 켜지 않는다.** 게이트 2에서 "고위험 변경으로 보이는데 review를 포함할지" 먼저 물어보고 답에 따른다 |
+| 사용자가 review를 명시했지만 강도를 지정하지 않음 | `reviewer-lite` 단일 패스 (기본) |
+| 사용자가 "전체 리뷰로"/"3축 다 돌려줘"/"꼼꼼하게 봐줘"처럼 강도까지 지정 | `reviewer-correctness`+`reviewer-contract`+`reviewer-test` 3축 병렬로 전환 |
+
+이 판단은 여기서 **한 번만** 내리고 `journal.md`에 기록한다(`review: 포함(reviewer-lite) | 포함(3축) | 생략`). 묶음마다 다시 묻지 않는다 — 중간에 켜거나 끄려면 사용자가 "리뷰 포함해줘"/"리뷰는 빼자"처럼 다시 명시해야 한다.
 
 ---
 
@@ -108,31 +138,71 @@ docs/superpowers/plans/{run-id}.md 를 작성하고,
 
 **spec 구멍이 반환되면 1-1로 되돌린다.** 구멍이 있는 채로 구현에 들어가면 리뷰 단계에서 spec 이탈로 다시 잡혀 두 번 일한다.
 
-**게이트 2:** 태스크 목록과 리뷰 묶음 경계를 사용자에게 제시하고 승인을 받는다.
+### 게이트 2 — 승인 + 모델 전환 (Phase 1의 하드 정지점)
+
+**여기서 반드시 멈춘다.** Phase 1은 설계(Opus), Phase 2는 구현(Sonnet)이므로 이 지점이 파이프라인의 유일한 모델 경계다. 승인과 전환을 한 번에 받아 왕복을 줄인다.
+
+**계획이 고위험 변경(결제·인증·삭제·마이그레이션 등)을 포함하는데 사용자가 아직 review를 요청하지 않았다면, 이 승인 요청에 review 포함 여부 질문을 덧붙인다.** Phase 0에서 review를 이미 켰거나(사용자가 명시) 고위험이 아니면 이 질문은 생략한다.
+
+사용자에게 다음을 제시한다:
+
+```
+## Phase 1 완료 — 승인 요청
+
+**설계:** docs/superpowers/specs/{run-id}-design.md
+- {핵심 결정 3~5줄}
+
+**계획:** docs/superpowers/plans/{run-id}.md
+- 태스크 {n}개 / 리뷰 묶음 {m}개
+- 묶음 A: Task 1~{k} — {요약}
+- 묶음 B: Task {k+1}~{n} — {요약}
+
+**다음 단계는 구현입니다.** `~/CLAUDE.md` 규칙에 따라 구현은 Sonnet으로 돌립니다.
+`/model sonnet` 으로 전환한 뒤 "진행"이라고 알려주세요.
+전환 없이 그대로 가도 되면 "Opus로 진행"이라고 알려주세요.
+
+[고위험 변경일 때만] 이 변경은 {결제 | 인증 | 삭제 | 마이그레이션}을 건드립니다. review는 기본 생략인데, 이번엔 포함할까요? (원치 않으면 생략한 채로 진행합니다)
+```
+
+**사용자 응답 없이 Phase 2를 시작하지 않는다.** 이 정지는 승인 게이트이면서 세션 모델 전환의 물리적 조건이다 — 오케스트레이터가 `/model`을 대신 실행할 수단이 없으므로, 여기서 멈추지 않으면 전환 기회 자체가 사라진다.
+
+| 사용자 응답 | 행동 |
+|---|---|
+| `/model sonnet` 후 "진행" | Phase 2 시작. `implementer`는 `model: "sonnet"` |
+| "Opus로 진행" (전환 거부) | Phase 2 시작. 전환 안 함을 저널에 기록하고 그대로 진행 — 재차 권하지 않는다 |
+| 계획 수정 요청 | 1-2로 되돌린다. 수정 후 이 게이트를 다시 통과한다 |
+| 설계 수정 요청 | 1-1로 되돌린다 |
+| (고위험 질문에) "포함해줘" | review 결정을 포함(reviewer-lite)으로 갱신. Phase 0의 판단을 덮어쓴다 |
+| (고위험 질문에) 응답 없음/"생략" | 결정대로 생략 유지 |
 
 승인되면 태스크 목록을 `TaskCreate`로 등록해 진행 상황이 보이게 한다.
 
-`journal.md`에 기록: spec 경로 · plan 경로 · 태스크 수 · 리뷰 묶음 · 사용자가 답한 미해결 질문.
+`journal.md`에 기록: spec 경로 · plan 경로 · 태스크 수 · 리뷰 묶음 · 사용자가 답한 미해결 질문 · **모델 전환 여부** · **review 결정(갱신됐다면 최종값)**.
 
 ---
 
-## Phase 2 ⇄ Phase 3: work / review 증분 루프
+## Phase 2 (⇄ Phase 3 — review를 포함하기로 한 경우만): work / review 증분 루프
 
-**전체를 다 만든 뒤 한 번에 리뷰하지 않는다.** 지적이 뭉쳐 나오고 되돌릴 거리가 멀어진다. 계획이 제안한 **리뷰 묶음마다** 다음 사이클을 돈다.
+앞서 정한 review 여부에 따라 묶음 사이클의 모양이 갈린다.
 
 ```
-묶음 A: work → review(reviewer-lite) → 정리 → 수정 → 다음 묶음 (재검증 없음, 기본)
-묶음 B: work → review → ...
+review 생략 (기본):  묶음 A: work → 다음 묶음 → ... → 최종 검증 → Phase 4
+review 포함:         묶음 A: work → review(reviewer-lite) → 정리 → 수정 → 다음 묶음 (재검증 없음, 기본)
+                     묶음 B: work → review → ...
 ```
+
+**review를 포함하기로 했다면 전체를 다 만든 뒤 한 번에 리뷰하지 않는다.** 지적이 뭉쳐 나오고 되돌릴 거리가 멀어진다. 계획이 제안한 **리뷰 묶음마다** Phase 3을 돈다.
 
 ### Phase 2: work — implementer
 
 묶음 하나당 `implementer` 하나. 컨텍스트 격리를 위해 **묶음마다 새 에이전트**를 띄운다.
 
+**게이트 2를 통과했는지 먼저 확인한다.** 사용자 승인 없이 이 Phase를 시작하지 않는다.
+
 ```
 Agent({
   subagent_type: "implementer",
-  model: "opus",
+  model: "sonnet",
   name: "implementer-{group}",
   run_in_background: false,
   prompt: `계획: docs/superpowers/plans/{run-id}.md
@@ -147,6 +217,8 @@ run-id: {run-id}
 })
 ```
 
+**`model`은 게이트 2에서 사용자가 답한 대로 넣는다.** 기본은 `"sonnet"`이고, 사용자가 "Opus로 진행"을 택했으면 `"opus"`로 넣는다. 리뷰 지적 수정을 위한 재호출도 같은 모델을 쓴다 — 묶음 중간에 모델이 바뀌면 앞서 짠 코드의 전제를 다른 모델이 이어받는다.
+
 **계획 이탈이 보고되면 멈춘다.** 오케스트레이터가 판단한다:
 - 계획이 틀렸다 → `plan-writer`를 재호출해 해당 태스크만 고친다
 - spec이 틀렸다 → `spec-architect`까지 되돌린다
@@ -154,7 +226,9 @@ run-id: {run-id}
 
 묶음 시작 커밋 해시(`base`)를 기록해둔다. 리뷰 범위가 된다.
 
-### Phase 3: review — reviewer-lite 단일 패스 (기본, 2026-07-27부터)
+### Phase 3: review — reviewer-lite 단일 패스 (옵션 — 사용자가 명시적으로 요청했을 때만)
+
+**review를 생략하기로 했다면(기본) 이 Phase 전체를 건너뛴다.** 다음 묶음의 Phase 2로, 마지막 묶음이면 바로 최종 검증으로 간다. 아래는 review를 포함하기로 한 경우에만 적용된다.
 
 **`Agent` 호출 하나면 된다.** 과거엔 correctness·contract·test 3축이 병렬로 돌며 spec·plan·learnings·diff를 각자 처음부터 읽었다 — 정확도는 높지만 같은 컨텍스트를 3번 중복 로딩하는 비용이 review 단계 시간·토큰의 대부분을 차지했다. `reviewer-lite`는 세 체크리스트를 한 패스에서 함께 보아 이 중복을 없앤다.
 
@@ -264,8 +338,8 @@ CLAUDE.md 변경 이력에 기록하라.
 ```
 .claude/_workspace/{run-id}/
 ├── journal.md                      # 전 단계 append. Phase 4의 주 입력
-├── review-{group}.md                # reviewer-lite 보고서 (3축 전환 시 review-{group}-{axis}.md 3개)
-└── findings-{group}.md             # 오케스트레이터가 정리
+├── review-{group}.md                # review를 포함한 경우에만 생성 — reviewer-lite 보고서 (3축 전환 시 review-{group}-{axis}.md 3개)
+└── findings-{group}.md             # review를 포함한 경우에만 생성 — 오케스트레이터가 정리
 
 docs/superpowers/specs/{run-id}-design.md    # 사용자 자산 — 커밋한다
 docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
@@ -283,13 +357,16 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 - spec: {경로}
 - plan: {경로} (태스크 {n}개, 묶음 {m}개)
 - 사용자 결정: {미해결 질문에 답한 내용}
+- 게이트 2: 승인 {날짜/시각} · 모델 전환 {sonnet으로 전환 | 전환 거부(Opus 유지)}
+- review: {포함(reviewer-lite) | 포함(3축) | 생략(기본)}
 
 ## 묶음 {group} — Task {n}~{m}
 - 커밋: {base}..{head} ({k}건)
+- implementer 모델: {sonnet | opus}
 - 계획 이탈: {내용 또는 없음}
-- 리뷰: Critical {a} / Major {b} / Minor {c} / Note {d}
-- 처리: 수정 {x} / 반박 {y} / 보류 {z}
-- 재검증: {없음(기본) | 1회(사용자 요청)}
+- 리뷰: {생략 | Critical {a} / Major {b} / Minor {c} / Note {d}}
+- 처리: {해당 없음 | 수정 {x} / 반박 {y} / 보류 {z}}
+- 재검증: {해당 없음 | 없음(기본) | 1회(사용자 요청)}
 
 ## 최종 검증
 - {명령} → {결과}
@@ -306,6 +383,8 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 | 리뷰어 지적이 서로 반대되는 반박 | 삭제 금지. 양쪽 병기 + 출처 표기 후 사용자 판단 |
 | 구현자가 3회 시도해도 막힘 | 중단. 지금까지의 커밋과 막힌 지점을 사용자에게 보고 |
 | 계획 이탈이 spec 수준 | Phase 1로 되돌린다. 우회 구현을 승인하지 않는다 |
+| 게이트 2에서 사용자가 응답하지 않음 | **기다린다.** "승인으로 간주"하고 Phase 2를 시작하지 않는다 — 모델 전환 기회가 사라지고 승인 게이트도 무효가 된다 |
+| 게이트 2 통과 후 사용자가 세션 모델을 안 바꿨다고 뒤늦게 알림 | 진행 중인 묶음은 그대로 끝낸다. **다음 묶음 경계에서** 전환한다 — 묶음 중간 교체는 앞 코드의 전제를 끊는다 |
 | 사용자 요청으로 재검증했는데도 수렴 안 됨(2회차 진입) | 멈추고 사용자에게 올린다 (설계 문제일 가능성) |
 | 최종 검증 실패 | Phase 4로 넘어가지 않는다. 실패를 보고하고 수정 루프로 되돌린다 |
 | `_workspace/` 쓰기 실패 | 저널 없이 진행하지 않는다 — Phase 4의 입력이 사라진다. 경로를 확인하고 중단 |
@@ -324,28 +403,38 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 
 | 규모 | 축약 |
 |---|---|
-| 태스크 3개 이하 단일 워크스페이스 | spec 생략 가능(계획에 결정을 인라인). 리뷰 묶음 1개 |
-| 버그 수정 1건 | Phase 1을 "재현 테스트 + 수정 태스크" 계획 하나로. 리뷰는 기본(`reviewer-lite`) 유지 |
-| 여러 워크스페이스에 걸친 기능 | 전체 수행. `reviewer-lite` 프롬프트에 경계면 교차 비교(체크리스트 2번)를 특히 강조하도록 명시한다 |
-| 리팩터링 (동작 무변경) | `reviewer-lite`에게 테스트 품질(회귀 공백) 비중을 높이라고 프롬프트에 명시한다 — 동작 보존의 유일한 증거다 |
+| 태스크 3개 이하 단일 워크스페이스 | spec 생략 가능(계획에 결정을 인라인). review를 포함하기로 했다면 리뷰 묶음 1개로 합친다 |
+| 버그 수정 1건 | Phase 1을 "재현 테스트 + 수정 태스크" 계획 하나로. review는 기본대로 생략 — 사용자가 요청하면 포함 |
+| 여러 워크스페이스에 걸친 기능 | 전체 수행. review를 포함하기로 했다면 `reviewer-lite` 프롬프트에 경계면 교차 비교(체크리스트 2번)를 특히 강조하도록 명시한다 |
+| 리팩터링 (동작 무변경) | review를 포함하기로 했다면 `reviewer-lite`에게 테스트 품질(회귀 공백) 비중을 높이라고 프롬프트에 명시한다. review를 생략한다면 최종 검증(기존 테스트 전부 통과)이 동작 보존의 유일한 증거이므로 반드시 돌린다 |
 
-**축약해도 review(`reviewer-lite` 최소 1회)와 compound는 유지한다.** 그 둘이 이 하네스의 존재 이유다.
+**review는 기본값이 이미 생략이라 더 줄일 게 없다. compound만 항상 유지한다** — 이번 실행에서 잡힌 것을 다음 실행의 규칙으로 남기는 유일한 단계다.
 
 ---
 
 ## 테스트 시나리오
 
-### 정상 흐름
+### 정상 흐름 (기본 — review 생략)
 
 > "core에 `tb stats` 커맨드를 추가해줘. 스테이지별 진행 상황을 표로 보여주는 거."
 
-1. Phase 0 — `_workspace/`에 해당 run 없음 → 초기 실행. run-id `2026-07-27-tb-stats`
+1. Phase 0 — `_workspace/`에 해당 run 없음 → 초기 실행. run-id `2026-07-27-tb-stats`. 사용자가 review를 요청하지 않았음 → **review 생략**으로 결정, journal에 기록
 2. Phase 1-1 — `spec-architect`가 `countStageStatus` 재사용을 결정, 출력 포맷을 확정. 미해결 질문 없음 → 게이트 1 통과
-3. Phase 1-2 — `plan-writer`가 태스크 3개(포매터 순수 함수 / 커맨드 / index 등록), 묶음 1개 제안 → 게이트 2 통과
-4. Phase 2 — `implementer`가 태스크 3개를 TDD로 구현, 커밋 3개
-5. Phase 3 — `reviewer-lite` 단일 패스. "빈 결과일 때 출력 테스트 없음"(Major) 1건 → `implementer`가 수정 → **재검증 없이 신뢰**, 다음 단계로
+3. Phase 1-2 — `plan-writer`가 태스크 3개(포매터 순수 함수 / 커맨드 / index 등록), 묶음 1개 제안
+4. **게이트 2** — 설계·계획 요약과 함께 `/model sonnet` 전환을 요청하고 **멈춘다.** 사용자가 전환 후 "진행" → 저널에 `모델 전환: sonnet` 기록
+5. Phase 2 — `implementer`(`model: "sonnet"`)가 태스크 3개를 TDD로 구현, 커밋 3개. review를 생략하므로 Phase 3 없이 바로 최종 검증으로
 6. 최종 검증: `npm test`, `npm run typecheck`, `npm run build` 통과
 7. Phase 4 — `compounder`: 새 학습 없음. 정직하게 "없음" 보고 → 사용자 피드백 청취
+
+### review 포함 흐름 (사용자가 명시적으로 요청)
+
+> "이 기능 review 포함해서 작업해줘."
+
+1. Phase 0 — 사용자가 review를 명시적으로 요청 → **review 포함(reviewer-lite)**으로 결정, journal에 기록
+2~4. 위 정상 흐름과 동일 (spec·plan·게이트 2)
+5. Phase 2 — `implementer`가 태스크를 구현, 커밋 완료 → Phase 3 — `reviewer-lite`(`model: "opus"`) 단일 패스. "빈 결과일 때 출력 테스트 없음"(Major) 1건 → `implementer`가 수정 → **재검증 없이 신뢰**, 다음 단계로
+6. 최종 검증 통과
+7. Phase 4 — `compounder` 실행 → 사용자 피드백 청취
 
 ### 에러 흐름
 
@@ -353,7 +442,8 @@ docs/superpowers/plans/{run-id}.md           # 사용자 자산 — 커밋한다
 
 1. 오케스트레이터가 멈춘다. 임의 우회를 승인하지 않는다
 2. 판정: spec의 전제가 틀렸다 → Phase 1-1로 되돌림
-3. `spec-architect` 재호출 — 기존 문서의 **해당 절만** 수정, 변경 근거 병기
-4. `plan-writer` 재호출 — 완료된 Task 1(`- [x]`)은 건드리지 않고 Task 2~3만 갱신
-5. Phase 2 재개 — 남은 태스크부터
-6. Phase 4 — `compounder`가 이 이탈을 학습으로 남긴다: *"spec이 기존 함수의 반환 shape을 전제할 때, 실제 시그니처를 인용하지 않으면 계획 전체가 무너진다"*. 이것이 2회째라면 `tb-spec-writing`의 "현행을 특정하는 법"을 규칙으로 강화하고 CLAUDE.md 이력에 기록
+3. `spec-architect`(`model: "opus"`) 재호출 — 기존 문서의 **해당 절만** 수정, 변경 근거 병기. 세션이 Sonnet이어도 서브에이전트는 Opus로 띄운다
+4. `plan-writer`(`model: "opus"`) 재호출 — 완료된 Task 1(`- [x]`)은 건드리지 않고 Task 2~3만 갱신
+5. **게이트 2를 다시 통과한다** — 계획이 바뀌었으므로 재승인이 필요하다. 세션 모델은 이미 Sonnet이므로 전환 안내는 생략하고 승인만 받는다
+6. Phase 2 재개 — 남은 태스크부터
+7. Phase 4 — `compounder`가 이 이탈을 학습으로 남긴다: *"spec이 기존 함수의 반환 shape을 전제할 때, 실제 시그니처를 인용하지 않으면 계획 전체가 무너진다"*. 이것이 2회째라면 `tb-spec-writing`의 "현행을 특정하는 법"을 규칙으로 강화하고 CLAUDE.md 이력에 기록
