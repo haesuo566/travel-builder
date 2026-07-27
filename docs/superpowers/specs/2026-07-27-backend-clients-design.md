@@ -245,15 +245,45 @@ TourSearchHit[]  (payload.contentid로 Postgres 재조회 가능)
 |---|---|---|---|
 | `DATABASE_URL` | 필수 (현행 유지) | — | `validateEnv` |
 | `GEMINI_API_KEY` | **필수 (신규)** | — | `validateEnv` |
-| `GEMINI_MODEL` | 선택 | `gemini-2.0-flash` | `ConfigService.get` 기본값 |
+| `GEMINI_MODEL` | 선택 | `gemini-2.0-flash` | 클라이언트에서 `\|\|` 폴백 (아래 참조) |
 | `TEI_BASE_URL` | **필수 (신규)** | — | `validateEnv` |
 | `QDRANT_URL` | **필수 (신규)** | — | `validateEnv` |
 | `QDRANT_API_KEY` | 선택 | 없음 = 인증 헤더 미전송 | — |
-| `QDRANT_COLLECTION` | 선택 | `tour_contents` | `ConfigService.get` 기본값 |
+| `QDRANT_COLLECTION` | 선택 | `tour_contents` | 클라이언트에서 `\|\|` 폴백 (아래 참조) |
 
 **core와 같은 키 이름을 쓴다.** 두 워크스페이스가 같은 Gemini 프로젝트·같은 TEI 서버·같은 Qdrant 컬렉션을 가리키므로, 키 이름이 갈리면 운영자가 같은 값을 두 이름으로 관리하게 된다. 기본값도 core와 같게 맞춘다(`core/.env.example`).
 
 TEI에는 API 키가 없다. 자체 호스팅 TEI는 인증 없이 동작한다는 선행 결정(`2026-07-23-core-tei-embedding-client-design.md:16`)을 그대로 따른다 — 따라서 TEI에는 `auth` 실패 분류 자체가 없다.
+
+### 빈 문자열 env — 키 이름은 같아도 해석이 갈린다
+
+키 이름을 core와 맞추는 것만으로는 부족하다. **`ConfigService.get(key, default)`는 값이 `undefined`일 때만 폴백한다.** core의 `optionalEnv`(`core/src/lib/env.ts:11-17`)는 `undefined`와 `''` **둘 다** 폴백한다. 실측:
+
+```
+ConfigService.get('GEMINI_MODEL', 'gemini-2.0-flash')  with GEMINI_MODEL=""  -> ""
+ConfigService.get('GEMINI_MODEL', 'gemini-2.0-flash')  with 키 자체가 없음    -> "gemini-2.0-flash"
+```
+
+`.env`에 `GEMINI_MODEL=`(키는 있고 값만 빈 줄)이 있으면 **같은 `.env`로 core는 돌고 backend만 죽는다.** 빈 모델명이 그대로 SDK에 실려 나간다. 흔한 편집 실수이고, 증상은 원인에서 멀다.
+
+**규칙: 클라이언트는 `ConfigService.get`의 두 번째 인자(기본값)를 쓰지 않는다.**
+
+```ts
+// 금지 — '' 를 유효한 값으로 받는다
+config.get<string>('GEMINI_MODEL', 'gemini-2.0-flash')
+
+// 규약 — undefined와 '' 를 같게 다룬다 (core의 optionalEnv와 동일 의미)
+config.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash'
+config.get<string>('QDRANT_API_KEY') || undefined   // 없으면 인증 헤더 미전송
+```
+
+두 번째 인자를 쓰지 않는다는 형태로 규칙을 세운 것은 **리뷰에서 grep으로 찾을 수 있게** 하기 위해서다. "빈 문자열을 조심하라"는 지침은 지켜졌는지 확인할 방법이 없다.
+
+`||`가 여기서 안전한 이유: 이 세 키의 값은 모두 문자열이고, **빈 문자열이 유효한 값인 경우가 없다.** 모델 이름이 `''`이거나 컬렉션 이름이 `''`인 상황은 존재하지 않는다.
+
+**구현 위치는 각 클라이언트다. 공유 헬퍼를 만들지 않는다.** 공통화 표가 "설정 키·기본값 = 반복(규약만 공통)"으로 이미 정한 축이고, 헬퍼를 만들면 공통 파일이 하나 늘어 구조 검증 기준의 기준선이 바뀐다. 대가는 클라이언트마다 같은 관용구를 반복하는 것인데, 위 grep 가능한 규칙과 클라이언트별 테스트가 그 대가를 감당한다.
+
+**필수 키는 이 문제에서 자유롭다.** `validateEnv`가 빈 문자열을 누락으로 취급해(현행 `env.validation.ts:12`와 동일 규칙) 부팅에서 막는다. 다만 `getOrThrow`는 **빈 문자열에 throw하지 않으므로** 두 번째 방어선이 아니다 — 필수 키의 유일한 관문은 `validateEnv`다.
 
 `backend/.env.example`에 위 키를 추가한다. `workspaces.md`가 "`backend/.env.example` ↔ `backend/src/config/env.validation.ts`"를 짝으로 지정하고 있으므로 둘을 함께 바꾼다.
 
@@ -296,7 +326,7 @@ export type ExternalService = 'gemini' | 'qdrant';
 export type ExternalFailureKind =
   // 우리 설정·코드의 문제 → 500
   | 'auth'                // 키가 없거나 무효
-  | 'not-found'           // 컬렉션 이름이 틀림
+  | 'not-found'           // 컬렉션 이름 또는 모델명이 틀림
   | 'dimension-mismatch'  // 질의 벡터 차원이 컬렉션과 다름
   // 외부 서비스 사정 → 502/503/504
   | 'quota'               // 429 / RESOURCE_EXHAUSTED
@@ -415,6 +445,83 @@ const MESSAGE_BY_KIND: Record<ExternalFailureKind, string>;  // kind별 고정 �
 
 `Record<ExternalFailureKind, ...>`로 선언하는 것도 결정이다 — kind를 추가하면 두 표를 채우지 않는 한 컴파일되지 않는다. 매핑 누락이 런타임 `undefined`가 되지 않는다.
 
+### 분류기 공통 원칙 — 상태 코드가 메시지를 이긴다
+
+세 분류기(`classifyGeminiFailure` · `classifyTeiFailure` · `classifyQdrantFailure`)가 모두 따르는 규칙이다. 네 번째 클라이언트도 이 절을 읽고 만든다. **특정 클라이언트의 각주가 아니라 공통 원칙이다.**
+
+#### 초안이 침묵해서 생긴 실제 결함
+
+초안은 판정을 `status가 X 이거나 메시지가 /…/`로만 적고 **둘 중 무엇이 이기는지 정하지 않았다.** 구현은 자연스럽게 "둘 중 하나라도 맞으면"이 됐고, 그 결과:
+
+```
+ApiError { status: 400,
+  message: '{"error":{"code":400,"message":"The input token count (1429852) exceeds
+             the maximum number of tokens allowed (1048576).","status":"INVALID_ARGUMENT"}}' }
+→ kind=quota · 503 · Retry-After: 60 · warn
+```
+
+**토큰 수 `1429852` 안의 `429`가 걸렸다.** 프롬프트가 너무 길어서 생긴 영구 실패가 "잠시 후 다시 시도하세요"가 되고, 정상 429와 **응답이 바이트 단위로 같아** 호출자가 구별할 방법이 없다. 로그 레벨도 `quota`만 `warn`이라 경보에서 사라진다.
+
+두 번째 입력: `status: 500` + 본문에 `"checking quota service"` → `quota`(503). 에러 표는 "Gemini 5xx → `upstream` → 502"인데 표와 코드가 갈렸다.
+
+원인은 **`message`가 사람이 읽는 문구가 아니라 응답 본문 전문**이라는 것이다. `@google/genai`의 `throwErrorIfNotOK`가 `JSON.stringify(errorBody)`를 통째로 넣는다(`dist/index.cjs:8538-8544`). 정규식은 `code`·`status`·`details`·도움말 URL·**Google이 실어 보내는 임의의 숫자**를 전부 훑는다.
+
+#### 초안의 안전 주장은 절반만 맞았다
+
+초안은 이 정규식을 두고 "모델 출력 원문을 담은 우리 쪽 오류에 적용하면 안 된다"고 경고한 뒤, "분류가 `callExternal` 안 SDK 호출을 감싼 자리에서만 일어나므로 **구조적으로 차단된다**"고 적었다. **틀렸다.** 그 차단은 *우리* 모델 출력만 막는다. **Google 자신의 오류 본문에 든 숫자는 막지 못한다.** 호출 지점을 좁히는 것으로는 부족하고, 정규식이 무엇을 보는지를 좁혀야 한다.
+
+#### 규칙 — 3단계
+
+> **1단계 (상태 확정).** 상태 코드를 정한다. **이 단계에서 메시지 내용을 쓰지 않는다.**
+> **2단계 (세부 분기).** 확정된 상태 **안에서** 갈래가 둘 이상일 때만 메시지를 본다.
+> **3단계 (안전망).** 상태를 끝내 확정하지 못했을 때만 메시지 전체를 정규식으로 추정한다.
+
+한 줄로: **상태를 정하는 데는 메시지를 쓰지 않는다. 상태가 정해진 뒤 세부를 가르는 데만 쓴다.**
+
+근거:
+- `status`는 HTTP 응답 상태 **그 자체**이고, 메시지 정규식은 그걸 **추측하려는 대체 수단**이다. 확정이 추측을 이겨야 한다.
+- 메시지 규칙이 **필요한** 경우(상태가 있는데 상태가 틀리고 메시지가 맞는 경우)는 존재하지 않는다.
+- 메시지 규칙이 **해로운** 경우는 위 두 입력처럼 실재한다.
+
+#### 2단계와 3단계는 다른 것이다 — 이 구분이 규칙의 전부다
+
+"상태가 이긴다"를 단순하게 적용하면 **이미 검증된 결정 하나가 깨진다.** 실제 Gemini는 무효한 키에 `401`이 아니라 **`400 + "API key not valid"`** 를 낸다. 상태만 보면 `invalid-request`(502)가 되어 만료된 키가 "외부가 우리 요청을 거절했다"로 잘못 청구된다.
+
+이건 규칙의 반례가 아니라 **2단계의 사례**다. 400은 이미 확정됐고, 메시지는 상태를 뒤집는 게 아니라 400 **안에서** `auth`와 `invalid-request`를 가른다. 같은 구조가 Qdrant의 `dimension-mismatch`에도 있다 — 400 안에서 차원 오류와 그 외를 가른다.
+
+두 용법의 차이가 결과를 가른다:
+
+| | 메시지가 하는 일 | 예 | 판정 |
+|---|---|---|---|
+| **2단계 (허용)** | 확정된 상태 **안에서** 갈래 선택 | `400` + `API key not valid` → `auth` | 상태를 바꾸지 않는다 |
+| **1단계 침범 (금지)** | 상태를 **추정**해서 뒤집음 | `400` + 본문의 `1429852` → `quota` | 확정 정보를 버린다 |
+
+`1429852`가 더 이상 문제가 되지 않는 이유가 여기 있다. **`/429/`는 1단계(상태 추정) 영역의 패턴이므로 상태가 확정된 오류에는 아예 적용되지 않는다.** 400 안의 2단계 패턴은 `/API key|PERMISSION_DENIED/i`뿐이고 토큰 수는 거기 걸리지 않는다.
+
+#### 3단계 안전망은 남기되 좁힌다
+
+메시지 규칙을 지우지는 않는다. `status`가 없는 오류가 실재하기 때문이다 — `@google/genai`는 상태가 400~599 **밖**이면 `ApiError`가 아니라 평 `Error(errorMessage)`를 던지고(`dist/index.cjs:8545`), 다른 realm에서 온 오류나 SDK를 거치지 않은 실패도 상태가 없다.
+
+다만 3단계는 이제 **추정임이 명시된 경로**이므로 패턴을 좁힌다:
+
+- **`429`·`quota` 같은 맨 토큰을 쓰지 않는다.** 세 자리 숫자와 흔한 단어는 본문 어디서든 걸린다("checking quota service").
+- 서비스가 **고유하게** 쓰는 토큰만 남긴다 — `RESOURCE_EXHAUSTED` · `rate limit` · `quota exceeded`처럼 오분류 표면이 좁은 것.
+- **core와 갈라지는 지점이다.** core의 `isRateLimited`는 `/429|rate limit|RESOURCE_EXHAUSTED|quota/i`를 쓴다(`core/src/services/enricher.ts:88`). core에는 같은 잠복 결함이 있지만 backend가 그걸 복사할 이유는 없다. backend는 상태를 손에 쥐고 있어 넓은 패턴이 필요 없다. (core 수정은 이 문서 범위 밖 — 별도 실행.)
+
+3단계의 목표는 정확한 판정이 아니라 **`upstream`보다 나은 추측**이다. 패턴을 넓히려는 변경은 이 절을 근거로 리뷰에서 막는다.
+
+#### 상태를 확정하는 방법은 서비스마다 다르다
+
+1단계가 어디서 상태를 얻는지는 SDK가 정한다. **설치본을 읽고 확인한 결과가 서비스마다 달랐다.**
+
+| 서비스 | 상태의 출처 | 확인 |
+|---|---|---|
+| Gemini | `ApiError.status` **프로퍼티** (4xx·5xx 전부) | `dist/genai.d.ts:475`, `dist/index.cjs:7914-7921, 8518-8546` |
+| TEI | `TeiHttpError.status` — 클라이언트가 `response.status`로 직접 채운다 | 이 문서의 설계 |
+| Qdrant | **프로퍼티가 없을 수 있다.** 주 경로는 `message` 머리말에만 있다 | `dist/cjs/errors.js:13-24` |
+
+Qdrant처럼 상태가 메시지 안에만 있는 경우에도 1단계는 유지된다 — **머리말의 정해진 위치에서만 파싱하고, 본문은 보지 않는다.** 자세한 것은 `classifyQdrantFailure` 절에 있다.
+
 ### `src/clients/gemini/gemini.client.ts` (신규)
 
 ```ts
@@ -443,13 +550,55 @@ export class GeminiClient {
 export function classifyGeminiFailure(error: unknown): ExternalFailureKind | null;
 ```
 
-- `status`/`code`가 429이거나 메시지가 `/429|rate limit|RESOURCE_EXHAUSTED|quota/i` → `quota`
-- 401·403 또는 `/API key|PERMISSION_DENIED/i` → `auth`
-- 400 또는 `/INVALID_ARGUMENT/i` → `invalid-request`
-- 5xx → `upstream`
-- 그 외 → `null`
+**위 "분류기 공통 원칙"의 3단계를 그대로 따른다.**
 
-429 판정은 core의 `isRateLimited`(`core/src/services/enricher.ts:84-89`)와 같은 규칙이다. core가 그 함수에 붙여 놓은 경고(`:79-83`)도 그대로 유효하다 — **모델 출력 원문을 담은 우리 쪽 오류에 이 정규식을 적용하면 안 된다.** 관광지 설명에 "1429년"이 들어 있으면 쿼터 초과로 오분류된다. 이 설계에서는 분류가 `callExternal` 안, **SDK 호출을 감싼 자리에서만** 일어나므로 구조적으로 차단된다.
+**1단계 — 상태 확정.** `status` 프로퍼티(숫자), 없으면 `code`(숫자). 둘 다 없으면 `null`. **메시지를 보지 않는다.**
+
+**2단계 — 확정된 상태 안에서 세부 분기.**
+
+| 상태 | 세부 분기 | kind |
+|---|---|---|
+| 400 | 메시지가 `/API key\|PERMISSION_DENIED/i` | `auth` |
+| 400 | 그 외 | `invalid-request` |
+| 401 · 403 | 없음 | `auth` |
+| 404 | 없음 | `not-found` |
+| 429 | 없음 | `quota` |
+| 500–599 | 없음 | `upstream` |
+| 그 외 상태 | 없음 | `null` |
+
+**3단계 — 상태가 `null`일 때만** 메시지 전체를 본다. 위에서 아래로 첫 일치:
+
+1. `/RESOURCE_EXHAUSTED|rate limit|quota exceeded/i` → `quota`
+2. `/API key|PERMISSION_DENIED/i` → `auth`
+3. `/is not found for API version|NOT_FOUND/i` → `not-found`
+4. `/INVALID_ARGUMENT/i` → `invalid-request`
+5. 그 외 → `null`
+
+`400 + "API key not valid"`가 `auth`로 가는 것이 2단계의 대표 사례다. 실제 Gemini는 무효한 키에 401이 아니라 **400**을 낸다 — 상태만 보고 끝내면 만료된 키가 `invalid-request`(502)가 되어 "외부가 우리 요청을 거절했다"는 잘못된 귀속이 된다. 메시지는 여기서 상태를 **뒤집는 게 아니라** 400 안에서 갈래를 고른다.
+
+**3단계의 `quota` 패턴이 core와 다르다.** core의 `isRateLimited`는 `/429|rate limit|RESOURCE_EXHAUSTED|quota/i`인데(`core/src/services/enricher.ts:88`), 여기서는 맨 `429`와 맨 `quota`를 뺐다. 맨 `429`는 본문의 아무 숫자에나 걸리고("token count (1429852)"), 맨 `quota`는 흔한 단어라 5xx 본문에도 나타난다("checking quota service"). 3단계는 이미 추측 경로이므로 **오분류 표면이 좁은 토큰만** 남긴다. 근거는 공통 원칙 절에 있다.
+
+#### 404를 `not-found`(500)로 끊는 이유
+
+`GEMINI_MODEL`에 오타(`gemini-2.5-flesh`)가 있거나 미배포 모델을 지정하면 SDK가 404를 던진다. 판정이 없으면 어느 분기에도 걸리지 않아 `upstream`(502) — "외부 서비스에서 오류가 발생했습니다." 가 된다. **Gemini는 멀쩡하고 틀린 것은 우리 `.env`인데**, 그 응답을 받은 사람은 Gemini 장애를 의심한다.
+
+**Qdrant는 컬렉션 이름 오타를 이미 `not-found`(500)로 끊는다.** 모델명 오타와 컬렉션 이름 오타는 같은 종류의 오설정이므로 같은 kind여야 한다. 한쪽만 "외부 서비스 사정"으로 청구하면 `ExternalFailureKind`를 책임 귀속별로 나눈 의미가 없어진다 — `failure-attribution.md`(이 저장소 최다 재발 유형)가 정확히 이 실수를 가리킨다.
+
+`MESSAGE_BY_KIND['not-found']`("외부 서비스에서 대상을 찾을 수 없습니다.")가 이미 맞는 문구라 **공통 파일은 수정하지 않는다.**
+
+#### Gemini의 `status`는 Qdrant와 달리 신뢰할 수 있다
+
+Qdrant에서 한 번 크게 돌아간 지점이라 설치본을 직접 확인했다. `@google/genai@2.13.0`의 `ApiError`는 **`status`를 실제 프로퍼티로 갖는다**(`dist/genai.d.ts:475`, `dist/index.cjs:7914-7921`).
+
+`throwErrorIfNotOK`(`dist/index.cjs:8518-8546`)가 `status: response.status`(HTTP 상태)와 `message: JSON.stringify(errorBody)`로 만들어 던진다. 즉 **상태는 프로퍼티에, 본문 JSON은 메시지에** 둘 다 있다 — Qdrant의 주 경로처럼 상태가 사라지는 shape은 없다.
+
+따라서 `status === 404`만으로 충분하고, 메시지 정규식은 보조 수단이다. 그래도 함께 두는 이유는 스트리밍 경로(`dist/index.cjs:8289-8300`)가 HTTP 상태가 아니라 응답 본문의 `code`로 `ApiError`를 만들기 때문이다. 두 경로의 값이 어긋날 여지가 있고, 정규식은 그 틈을 덮는다.
+
+core의 `isRateLimited`(`core/src/services/enricher.ts:84-89`)에 붙은 경고 — "모델 출력 원문을 담은 우리 쪽 오류에 이 정규식을 적용하면 안 된다. 관광지 설명의 '1429년'이 쿼터 초과로 오분류된다"(`:79-83`) — 는 여전히 유효하다.
+
+**다만 초안이 그 경고에 붙인 안전 주장은 틀렸다.** 초안은 "분류가 `callExternal` 안 SDK 호출을 감싼 자리에서만 일어나므로 **구조적으로 차단된다**"고 적었다. 호출 지점을 좁히는 것은 *우리* 데이터가 분류기에 들어가는 것만 막는다. **Google 자신의 오류 본문에 든 숫자는 막지 못하고**, 실제로 그 경로로 결함이 났다(공통 원칙 절의 `1429852`). 진짜 방어는 호출 지점이 아니라 **3단계 규칙과 좁은 패턴**이다.
+
+`not-found`의 `NOT_FOUND` 토큰에도 같은 위험이 있다. 짧고 흔해서 본문 어디서든 나타날 수 있다. 이 패턴이 3단계에만 있고 **주 판정은 `status === 404`**(1단계)라는 것이 방어다.
 
 ### `src/clients/tei/tei.client.ts` (신규)
 
@@ -513,14 +662,27 @@ export class TeiHttpError extends Error {
 export function classifyTeiFailure(error: unknown): ExternalFailureKind | null;
 ```
 
-- `TeiHttpError`이고 `status`가 400 · 413 · 422 → `invalid-request` (입력이 모델 제약을 벗어남. `truncate: true`라 흔치 않다)
-- `TeiHttpError`이고 `status`가 5xx → `upstream` (모델 로딩 중·OOM)
-- `TeiHttpError`이고 그 외 비-2xx → `upstream`
-- **그 외 전부 → `null`** — 연결 거부·중단은 `fetch`가 던지고 `classifyCommonFailure`가 처리한다. TEI용 코드가 필요 없다
+공통 원칙의 3단계 중 **1단계만 있는 가장 단순한 형태다.**
+
+**1단계 — 상태 확정.** `TeiHttpError`면 `status`, 아니면 없음.
+
+| 상태 | kind |
+|---|---|
+| 400 · 413 · 422 | `invalid-request` (입력이 모델 제약을 벗어남. `truncate: true`라 흔치 않다) |
+| 5xx | `upstream` (모델 로딩 중·OOM) |
+| 그 외 비-2xx | `upstream` |
+
+**2단계 없음.** 어떤 상태 안에서도 갈래가 둘이 아니다.
+
+**3단계 없음.** `TeiHttpError`가 아니면 곧바로 `null` — 연결 거부·중단은 `fetch`가 던지고 `classifyCommonFailure`가 처리한다.
 
 `auth`·`quota`·`not-found`는 TEI에 없다.
 
-`TeiHttpError`를 `tei.errors.ts`에 두는 이유: 던지는 쪽(`tei.client.ts`)과 판정하는 쪽이 같은 타입을 봐야 하고, 판정 규칙 옆에 두어야 상태 코드 목록과 타입이 함께 바뀐다. `bodySnippet`은 로그용이며 **분류에는 쓰지 않는다** — TEI의 상태 코드만으로 판정이 결정된다.
+**`bodySnippet`은 로그용이며 분류에 쓰지 않는다.** 이 결정은 공통 원칙의 직접적 사례다 — 상태를 `response.status`에서 확정할 수 있으므로 본문을 볼 이유가 없고, 보기 시작하면 TEI 오류 본문의 숫자가 상태 판정에 끼어드는 길이 열린다. Gemini에서 실제로 난 결함이 그것이다.
+
+`TeiHttpError`를 `tei.errors.ts`에 두는 이유: 던지는 쪽(`tei.client.ts`)과 판정하는 쪽이 같은 타입을 봐야 하고, 판정 규칙 옆에 두어야 상태 코드 목록과 타입이 함께 바뀐다.
+
+**세 분류기 중 이것이 가장 단순한 이유는 TEI가 특별해서가 아니라 상태를 우리가 직접 채우기 때문이다.** SDK가 상태를 어디에 숨기든 상관없는 자리에 있다 — 1단계가 깨끗하면 나머지가 따라온다.
 
 #### 세 갈래 실패가 `callExternal`에 도달하는 경로
 
@@ -625,16 +787,46 @@ core가 `isCollectionNotFound`에 남긴 주석(`core/src/clients/qdrant.ts:8-14
 export function classifyQdrantFailure(error: unknown): ExternalFailureKind | null;
 ```
 
-1. **타임아웃** — 생성자 이름이 `QdrantClientTimeoutError` → `timeout`
-2. **상태 코드 추출** — `error.status`가 숫자면 그것, 없으면 `message`의 `/Unexpected Response:\s*(\d{3})/`에서 파싱
-3. **검색 대상 문자열** — `message` + (`data`가 있으면 `JSON.stringify(data)`)를 **이어붙인 것**. 어느 shape이 오든 본문이 포함된다
-4. 상태 404 또는 검색 문자열이 `/not found|doesn't exist|does not exist/i` → `not-found`
-5. 상태 401 · 403 → `auth`
-6. 상태 400 → 검색 문자열이 `/dimension|expected dim/i`면 `dimension-mismatch`, 아니면 `invalid-request`
-7. 상태 5xx → `upstream`
-8. 그 외 → `null`
+공통 원칙의 3단계를 따르되, **1단계가 Gemini보다 복잡하다.** 주 경로에 `status` 프로퍼티가 없어 상태를 문자열에서 꺼내야 하는데, 그 꺼내는 방식이 곧 1단계의 안전성을 결정한다.
 
-2번과 3번이 이 함수의 전부다. 나머지는 그 위의 단순한 분기이며, **테스트는 두 shape을 각각 넣어 같은 kind가 나오는지 확인한다** — 한 shape만 테스트하면 다른 쪽에서 통째로 오분류된다.
+**0단계 — 타임아웃.** 생성자 이름이 `QdrantClientTimeoutError` → `timeout`. (상태가 없는 오류라 먼저 처리한다.)
+
+**1단계 — 상태 확정. 본문을 보지 않는다.**
+
+- `error.status`가 숫자면 그것 (`ApiError` 경로)
+- 아니면 `message`의 **머리말**에서만 파싱: `/^Unexpected Response:\s*(\d{3})\b/`
+- 둘 다 실패하면 `null`
+
+**`^` 앵커가 이 규칙의 핵심이다.** 앵커 없이 `message` 아무 데서나 세 자리 숫자를 찾으면, `Raw response content:` 뒤에 붙은 본문 JSON의 숫자를 상태 코드로 읽는다 — Gemini의 `1429852`와 **완전히 같은 병**이다. 머리말은 `forResponse`가 항상 첫 줄에 `Unexpected Response: {code} ({reason})` 형태로 만든다(`dist/cjs/errors.js:14-23`). 그 위치에서만 읽는다.
+
+**2단계 — 확정된 상태 안에서 세부 분기.** 여기서만 본문을 본다.
+
+검색 대상 문자열 = `message` + (`data`가 있으면 `JSON.stringify(data)`). 두 shape 중 어느 쪽이 와도 본문이 포함된다.
+
+| 상태 | 세부 분기 | kind |
+|---|---|---|
+| 400 | 검색 문자열이 `/dimension\|expected dim/i` | `dimension-mismatch` |
+| 400 | 그 외 | `invalid-request` |
+| 401 · 403 | 없음 | `auth` |
+| 404 | 없음 | `not-found` |
+| 429 | 없음 | **`null`** (아래 참조) |
+| 500–599 | 없음 | `upstream` |
+| 그 외 상태 | 없음 | `null` |
+
+**3단계 — 상태가 `null`일 때만** 검색 문자열 전체를 본다:
+
+1. `/not found|doesn't exist|does not exist/i` → `not-found`
+2. 그 외 → `null`
+
+#### 본문 검색이 허용되는 자리는 단 하나다
+
+`dimension-mismatch`가 이 함수에서 본문을 보는 유일한 이유다. Qdrant는 차원 오류와 잘못된 필터 문법을 **같은 400**으로 돌려주므로, 상태만으로는 둘을 가를 수 없다.
+
+이건 1단계 침범이 아니다. **상태를 정하는 데는 본문을 쓰지 않고, 상태가 400으로 정해진 뒤 세부를 가르는 데만 쓴다.** 규칙을 이 형태로 적어 두는 이유는, 같은 구조(`상태 || 검색문자열`)를 다시 쓰려는 변경이 리뷰에서 이 문단에 부딪히게 하기 위해서다.
+
+초안은 4번을 "상태 404 **또는** 검색 문자열이 `/not found/i`"로 적었다. 그 `또는`이 본문을 상태 판정에 끌어들인다 — Qdrant가 400 본문에 "collection not found"를 담아 보내면 400이 `not-found`로 둔갑한다. 지금은 404 판정이 1단계 상태에만 걸리고, 문자열 판정은 상태를 못 읽었을 때(3단계)로 내려갔다.
+
+**테스트는 두 shape을 각각 넣어 같은 kind가 나오는지 확인한다** — 한 shape만 테스트하면 다른 쪽에서 통째로 오분류된다.
 
 **타임아웃을 여기서 잡아야 하는 이유.** `classifyCommonFailure`가 `AbortError`를 이름으로 잡지만, Qdrant SDK는 `fetch`의 `AbortError`를 **자기 타입으로 바꿔 다시 던진다**(`api-client.js:31-35`). 그래서 공통 판정에 걸리지 않는다. 여기서 잡지 않으면 에러 처리 표의 "Qdrant 5초 초과 → 504"가 성립하지 않고 조용히 502가 된다 — 표는 그대로인데 동작만 어긋나는 종류의 결함이라 테스트로 못 박아 둔다.
 
@@ -703,6 +895,7 @@ export class ClientsModule {}
 |---|---|---|---|---|---|
 | 부팅 시 필수 env 누락 | 우리 설정 | — (`validateEnv` throw) | **부팅 실패** | — | Nest 부팅 오류 |
 | Gemini 401/403 · 키 무효 | **우리 설정** | `auth` | **500** | 없음 | error (키 값 미기록) |
+| **Gemini 404 / 모델명 오설정** | **우리 설정** | `not-found` | **500** | 없음 | error |
 | Gemini 429 / RESOURCE_EXHAUSTED | 외부(쿼터) | `quota` | **503** + `Retry-After: 60` | **없음** | warn |
 | Gemini 400 / INVALID_ARGUMENT | 외부가 거절 | `invalid-request` | 502 | 없음 | error |
 | Gemini 5xx | 외부 | `upstream` | 502 | 없음 | error |
@@ -755,7 +948,7 @@ export class ClientsModule {}
 
 **정합성은 코드가 아니라 이 표와 실측으로만 보장된다.** backend의 시그니처를 core와 1:1로 맞춘 것도 이제 승격 대비가 아니라 **두 파일을 나란히 놓고 사람이 대조할 수 있게 하려는 것**으로 목적이 바뀌었다. 그 목적으로도 유지할 값어치가 있으므로 유지한다.
 
-**`test-asymmetry.md`** — 위 에러 표는 23행이다. 테스트 목록도 행마다 짝을 맞춘다. 특히 겉모습이 같아서 한쪽만 테스트하기 쉬운 쌍을 명시적으로 짝짓는다: "hit 0건은 실패가 아니다" ↔ "hit은 있는데 전 건 파싱 실패는 실패다", "TEI 빈 응답은 실패다" ↔ "정상 벡터는 그대로 통과한다".
+**`test-asymmetry.md`** — 위 에러 표는 24행이다. 테스트 목록도 행마다 짝을 맞춘다. 특히 겉모습이 같아서 한쪽만 테스트하기 쉬운 쌍을 명시적으로 짝짓는다: "hit 0건은 실패가 아니다" ↔ "hit은 있는데 전 건 파싱 실패는 실패다", "TEI 빈 응답은 실패다" ↔ "정상 벡터는 그대로 통과한다".
 
 ### 신규 함정
 
@@ -854,11 +1047,29 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - 분류기 예외가 **원래 실패와 별도로 로그**됨
 - 비-`Error` 값(`'문자열'` · `null` · `undefined`)으로 reject → 모두 `ExternalServiceError`로 감싸짐 (계약 "무슨 일이 있어도 `ExternalServiceError`만 던진다")
 
-**`gemini.errors`** — 표의 각 행마다 판정 1건 + **모르는 오류에 `null`을 반환하는 케이스**(공통 판정으로 넘기는 경로가 살아 있는지)
+**`gemini.errors`** — 2단계 표의 각 행마다 1건 + 3단계 5줄 각각 1건 + 아래를 반드시 포함
+
+**상태가 메시지를 이기는지 (공통 원칙 회귀)** — 이 셋이 이 분류기에서 가장 중요한 테스트다:
+- **`status: 400` + 본문에 `"The input token count (1429852) exceeds…"` → `invalid-request`** (`quota` 아님). 실제로 결함이 났던 입력 그대로 쓴다
+- **`status: 500` + 본문에 `"…while checking quota service."` → `upstream`** (`quota` 아님)
+- **`status: 200`대가 아닌 임의 상태 + 본문에 `RESOURCE_EXHAUSTED` → 상태가 이긴다**
+
+**2단계 (상태 안에서 세부 분기)**:
+- **`400 + "API key not valid"` → `auth`** ↔ **400 + 그 외 메시지 → `invalid-request`** (짝). 앞이 깨지면 만료된 키가 502가 된다
+- 404 → `not-found` / 401 · 403 → `auth` / 429 → `quota` / 503 → `upstream`
+
+**3단계 (상태 없음)**:
+- `status`·`code`가 없고 메시지만 `RESOURCE_EXHAUSTED` → `quota`
+- 상태 없고 메시지만 `is not found for API version` → `not-found`
+- **상태 없고 메시지에 `429`만 있음 → `quota`가 아님** (좁힌 패턴이 실제로 좁아졌는지 — core 규칙을 그대로 복사하면 실패한다)
+- **상태 없고 메시지에 `checking quota service`만 있음 → `quota`가 아님**
+- 모르는 오류 → `null` (공통 판정으로 넘기는 경로가 살아 있는지)
+- 비-`Error` 값 → `null` (**던지지 않는다**)
 
 **`gemini.client`** (`jest.mock('@google/genai')`)
 - `generate`가 SDK를 올바른 model·prompt·systemInstruction·temperature로 호출
 - `opts.model` 미지정 시 `GEMINI_MODEL` 기본값(`gemini-2.0-flash`) 사용 / 지정 시 그 값 사용
+- **`GEMINI_MODEL=''`(빈 문자열)일 때도 기본값으로 폴백** ↔ 키 부재 시 폴백 ↔ 값이 있으면 그 값 (3방향). `ConfigService.get`의 두 번째 인자를 쓰면 첫 번째 케이스가 실패한다
 - 응답 텍스트를 그대로 반환
 - **빈 문자열 응답 → `empty-response`로 throw** / 공백만 있는 응답도 동일
 - `undefined` 텍스트 → `empty-response`
@@ -870,9 +1081,11 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - `TeiHttpError(400)` · `(413)` · `(422)` → `invalid-request` / `(500)` · `(503)` → `upstream` / 그 외 비-2xx → `upstream`
 - **`TeiHttpError`가 아닌 오류 → `null`** (`fetch`가 던진 것을 가로채지 않고 공통 판정에 넘기는지 — 반대 방향 케이스)
 - 비-`Error` 값 → `null` (**던지지 않는다**)
+- **`bodySnippet`이 판정을 바꾸지 않는다** — 같은 `status`에 서로 다른 `bodySnippet`(빈 문자열 / `RESOURCE_EXHAUSTED` 포함 / 숫자 `429` 포함)을 넣어도 kind가 동일. 나중에 누가 "정확도를 높이려고" 본문을 보기 시작하면 이 테스트가 막는다
 
 **`tei.client`** (전역 `fetch` 스텁)
 - `POST {TEI_BASE_URL}/embed`로 나가고, 바디가 **`{ inputs: [text], normalize: true, truncate: true }`** 와 정확히 일치 (core의 요청 형태와 같은지 — 문자열 수준 단정)
+- `TEI_BASE_URL`은 필수 키이므로 폴백이 없다. 빈 문자열 케이스는 `validateEnv` 쪽에서 검증한다 (여기서 중복하지 않음)
 - 바디에 `prompt_name` 키가 **없음**
 - 응답 `[[0.1, 0.2, ...]]` → 첫 벡터를 `number[]`로 반환
 - 빈 문자열 / 공백만 있는 입력 → **`fetch` 호출 0회**, `invalid-request` throw ↔ 정상 문자열 → `fetch` 1회 (짝)
@@ -892,10 +1105,15 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - fixture B: `ApiError` 형태 — `status` 숫자 있음, `message`는 `statusText`뿐, 본문은 `data`
 
 판정 케이스:
-- 404 → `not-found` (A·B 양쪽) / status를 못 읽고 메시지만 `not found`여도 `not-found`
+- 404 → `not-found` (A·B 양쪽) / 상태를 못 읽고 메시지만 `not found`여도 `not-found` (3단계)
 - 401 · 403 → `auth` (A·B)
 - 400 + 차원 문구 → `dimension-mismatch` ↔ **400 + 그 외 문구 → `invalid-request`** (A·B 각각 짝)
 - 5xx → `upstream` (A·B)
+
+**1단계가 본문을 보지 않는지 (공통 원칙 회귀)** — Gemini와 같은 병이 복제되지 않았는지 확인한다:
+- **머리말은 `Unexpected Response: 400 (Bad Request)`인데 본문 JSON에 `404`나 `"not found"`가 들어 있음 → `invalid-request` 계열** (`not-found` 아님). 앵커 없는 정규식이면 실패한다
+- **머리말은 `Unexpected Response: 500 …`인데 본문에 차원 문구가 있음 → `upstream`** (`dimension-mismatch` 아님)
+- 머리말이 없고 `status` 프로퍼티도 없는 오류 → 3단계로만 판정
 - `QdrantClientTimeoutError` → `timeout` (**공통 판정에 맡기면 502가 되는 회귀를 못 박는다**)
 - **429 → `null`** (Gemini와 달리 `quota`로 판정하지 않음). `QdrantClientResourceExhaustedError`도 `null`
 - 모르는 오류 · 비-`Error` 값 → `null` (**던지지 않는다**)
@@ -910,8 +1128,8 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 
 **`qdrant.client`** (`jest.mock('@qdrant/js-client-rest')`)
 - 생성자가 `url`·`apiKey`·**`timeout`**을 SDK에 전달 (timeout 누락 회귀 방지)
-- `QDRANT_API_KEY`가 없으면 `apiKey`를 넘기지 않음
-- `search`가 `QDRANT_COLLECTION` 컬렉션을 사용 (기본값 `tour_contents` / env 지정 시 그 값)
+- `QDRANT_API_KEY`가 없으면 `apiKey`를 넘기지 않음 / **`QDRANT_API_KEY=''`일 때도 넘기지 않음** (짝)
+- `search`가 `QDRANT_COLLECTION` 컬렉션을 사용 (기본값 `tour_contents` / env 지정 시 그 값 / **`''`일 때 기본값**)
 - 요청에 **`with_payload: true`가 포함되고 `with_vector`는 포함되지 않음**
 - `limit` 기본 10 / 지정 시 그 값
 - 필터 지정 시 변환된 필터 전달 / **미지정 시 필터 키 자체가 요청에 없음**
@@ -1018,6 +1236,7 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - **`ChatModule` 배선 / `ChatService` 스텁 교체** — 이번 요구사항은 클라이언트다. `chat.service.ts:15`의 동기 시그니처를 `Promise`로 바꾸는 변경은 컨트롤러와 계약 테스트까지 함께 봐야 하므로 별도 실행이다.
 - **`core`를 공유 패키지로 승격** — 미해결 질문 3의 답으로 **계획 없음이 확정**됐다. 되살리려면 `core/package.json`에 `exports` 추가 + backend의 jest ESM 전환이 함께 필요하다는 것만 기록해 둔다.
 - **core의 Qdrant 타임아웃 미설정 수정** — `core/src/clients/qdrant.ts:50`이 SDK 기본값 300초에 노출돼 있다. core 워크스페이스 변경이라 이 문서에서 하지 않는다. 별도 실행에서 다룬다.
+- **core의 `isRateLimited` 잠복 결함 수정** — `core/src/services/enricher.ts:88`의 `/429|rate limit|RESOURCE_EXHAUSTED|quota/i`가 Gemini 오류 본문 전문에 적용된다. backend에서 실제로 터진 것과 같은 구조이며(`1429852` → `quota`), core에서는 **쿼터가 아닌 실패를 쿼터로 오분류해 `structure_attempt_count`를 올리지 않고 넘어가게** 만든다 — 영구 실패 항목이 매 실행 재시도되며 제자리걸음한다. 증상이 backend와 다르지만 뿌리는 같다. core 워크스페이스 변경이라 별도 실행에서 다룬다.
 - **메트릭·트레이싱** — 로그만 남긴다.
 - **`@Global()` 모듈, 커스텀 provider 토큰, 동적 모듈(`forRoot`) 패턴** — 클라이언트가 두 개고 설정이 env 하나뿐인 지금은 전부 순비용이다.
 
