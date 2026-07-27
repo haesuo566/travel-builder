@@ -23,12 +23,53 @@ function messageOf(error: unknown): string {
 }
 
 /**
+ * 2단계 — 확정된 상태 **안에서** 세부를 가른다. 메시지는 상태를 뒤집지 못한다.
+ *
+ * 400에서만 메시지를 보는 이유: 실제 Gemini는 무효한 키에 401이 아니라
+ * 400 + "API key not valid"를 낸다. 상태만 보고 끝내면 만료된 키가
+ * invalid-request(502)가 되어 "외부가 우리 요청을 거절했다"로 잘못 청구된다.
+ */
+function classifyByStatus(
+  status: number,
+  message: string,
+): ExternalFailureKind | null {
+  if (status === 400) {
+    return /API key|PERMISSION_DENIED/i.test(message)
+      ? 'auth'
+      : 'invalid-request';
+  }
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 429) return 'quota';
+  if (status >= 500 && status <= 599) return 'upstream';
+  return null;
+}
+
+/**
+ * 3단계 — 상태를 끝내 확정하지 못했을 때만 쓰는 안전망. 위에서 아래로 첫 일치.
+ *
+ * core의 isRateLimited(core/src/services/enricher.ts:84-89)에서 맨 `429`와 맨 `quota`를
+ * 뺐다. SDK의 message는 사람이 읽는 문구가 아니라 응답 본문 전문이라
+ * ("The input token count (1429852) exceeds…", "checking quota service")
+ * 흔한 토큰은 아무 본문에나 걸린다. 여기는 이미 추측 경로이므로 오분류 표면이
+ * 좁은 토큰만 남긴다.
+ */
+function classifyByMessage(message: string): ExternalFailureKind | null {
+  if (/RESOURCE_EXHAUSTED|rate limit|quota exceeded/i.test(message)) {
+    return 'quota';
+  }
+  if (/API key|PERMISSION_DENIED/i.test(message)) return 'auth';
+  if (/INVALID_ARGUMENT/i.test(message)) return 'invalid-request';
+  return null;
+}
+
+/**
  * Gemini SDK 오류를 kind로 판정한다. 모르는 오류에는 null을 반환해 공통 판정에 넘긴다.
  *
- * 429 판정은 core의 isRateLimited(core/src/services/enricher.ts:84-89)와 같은 규칙이다.
- * core가 그 함수에 붙여 놓은 경고도 그대로 유효하다 — 모델 출력 원문을 담은 우리 쪽
- * 오류에 이 정규식을 적용하면 안 된다. 관광지 설명의 "1429년"이 쿼터 초과로 오분류된다.
- * 이 함수는 callExternal이 SDK 호출을 감싼 자리에서만 불리므로 구조적으로 차단된다.
+ * spec의 "분류기 공통 원칙 — 상태 코드가 메시지를 이긴다"를 따른다.
+ * status는 HTTP 응답 상태 그 자체이고 메시지 정규식은 그걸 추측하려는 대체 수단이다.
+ * 확정이 추측을 이겨야 한다 — 상태가 있는데 메시지로 상태를 다시 정하면
+ * 400(토큰 초과)이 quota(503 + Retry-After)로 둔갑해 영구 실패에
+ * "잠시 후 다시 시도하세요"를 돌려준다.
  */
 export function classifyGeminiFailure(
   error: unknown,
@@ -36,24 +77,9 @@ export function classifyGeminiFailure(
   const status = statusOf(error);
   const message = messageOf(error);
 
-  if (
-    status === 429 ||
-    /429|rate limit|RESOURCE_EXHAUSTED|quota/i.test(message)
-  ) {
-    return 'quota';
-  }
-  if (
-    status === 401 ||
-    status === 403 ||
-    /API key|PERMISSION_DENIED/i.test(message)
-  ) {
-    return 'auth';
-  }
-  if (status === 400 || /INVALID_ARGUMENT/i.test(message)) {
-    return 'invalid-request';
-  }
-  if (status !== null && status >= 500 && status <= 599) {
-    return 'upstream';
-  }
-  return null;
+  // 상태를 못 읽은 경우에만 메시지 추정으로 내려간다. 상태가 있는데 우리가 그 값을
+  // 모르는 것과, 상태 자체가 없는 것은 다른 상황이다 — 전자는 null로 끝낸다.
+  return status === null
+    ? classifyByMessage(message)
+    : classifyByStatus(status, message);
 }
