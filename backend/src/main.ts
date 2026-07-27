@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { ExternalServiceFilter } from './clients/external-service.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +14,8 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  // 외부 서비스 실패의 HTTP 매핑은 여기 한 곳뿐이다.
+  app.useGlobalFilters(new ExternalServiceFilter());
   await app.listen(process.env.PORT ?? 3000);
 }
 void bootstrap();
