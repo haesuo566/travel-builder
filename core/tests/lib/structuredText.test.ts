@@ -70,6 +70,13 @@ describe("needsFallback", () => {
 });
 
 describe("buildStructurePrompt", () => {
+  it("시스템 지시문 없이 이 프롬프트만 단독으로 보내도 과업을 알 수 있게 지시문으로 시작한다", () => {
+    const text = buildStructurePrompt(input());
+    const firstLine = text.split("\n")[0] ?? "";
+    expect(firstLine).toContain("정규화");
+    expect(firstLine.length).toBeGreaterThan(10);
+  });
+
   it("제목·타입·분류·지역·주소·원문을 담는다", () => {
     const text = buildStructurePrompt(input());
     expect(text).toContain("제목: 경복궁");

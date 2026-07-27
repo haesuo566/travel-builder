@@ -58,9 +58,21 @@ function classificationPath(input: EnrichInput): string {
   return joinNonEmpty([input.lcls1Nm, input.lcls2Nm, input.lcls3Nm], " > ");
 }
 
+/**
+ * 데이터 나열 앞에 붙는 한 줄 과업 지시문.
+ *
+ * 이게 없으면 buildStructurePrompt의 결과물은 "제목: …\n관광타입: …" 같은
+ * 라벨-값 나열일 뿐이라 무엇을 하라는 지시가 전혀 없다 — systemInstruction과
+ * 함께 보내는 한 문제가 없어 보이지만, 이 프롬프트만 따로 떼어 보내면(예: 수동 테스트)
+ * 모델이 할 일을 모른 채 데이터를 그대로 요약하는 수준의 빈약한 응답을 내놓는다.
+ * systemInstruction 없이도 최소한의 과업은 전달되도록 한 줄을 데이터 앞에 둔다.
+ */
+const TASK_INSTRUCTION =
+  "아래 관광지 정보를 참고해 고정 포맷의 검색 색인 텍스트로 정규화하라. 확신 없는 항목은 '정보 없음'이라고 써라.";
+
 /** 항목별 프롬프트를 만든다. 빈 값 줄은 생략해 무의미한 입력을 만들지 않는다. */
 export function buildStructurePrompt(input: EnrichInput): string {
-  const lines = [`제목: ${input.title}`];
+  const lines = [TASK_INSTRUCTION, "", `제목: ${input.title}`];
   if (input.contentTypeNm.trim() !== "") lines.push(`관광타입: ${input.contentTypeNm}`);
 
   const path = classificationPath(input);

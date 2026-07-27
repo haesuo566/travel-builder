@@ -83,6 +83,23 @@ describe('GeminiClient', () => {
     expect(generateContent).not.toHaveBeenCalled();
   });
 
+  it('GEMINI_API_KEY가 없으면 부팅이 실패한다', async () => {
+    // getOrThrow가 get으로 바뀌면 apiKey가 undefined인 클라이언트가 부팅에 성공하고
+    // 첫 사용자 요청에서야 auth로 나타난다. 키 누락은 배포 시점에 드러나야 한다.
+    await expect(createClient({})).rejects.toThrow(/GEMINI_API_KEY/);
+    expect(GoogleGenAIMock).not.toHaveBeenCalled();
+  });
+
+  it('GEMINI_API_KEY가 빈 문자열이면 여기서는 막지 않는다', async () => {
+    // 의도적 낙하다. getOrThrow는 ''에 throw하지 않으므로 필수 키의 관문은
+    // Task 12의 validateEnv 하나뿐이다 — 클라이언트에 두 번째 방어선이 있다고
+    // 착각하면 그 관문을 느슨하게 만들어도 아무도 눈치채지 못한다.
+    const client = await createClient({ GEMINI_API_KEY: '' });
+
+    expect(client).toBeInstanceOf(GeminiClient);
+    expect(GoogleGenAIMock).toHaveBeenCalledWith({ apiKey: '' });
+  });
+
   it('model·contents·systemInstruction·temperature를 SDK에 넘긴다', async () => {
     const client = await createClient();
     await client.generate('안녕', {
