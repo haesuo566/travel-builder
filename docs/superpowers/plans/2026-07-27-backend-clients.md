@@ -816,7 +816,7 @@ auth를 503이 아니라 500으로 보내는 것이 핵심이다 — 만료된 �
 
 `@google/genai@2.13.0`의 `ApiError`는 `status: number`를 갖는다 (`dist/genai.d.ts:475-479`).
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/gemini/gemini.errors.spec.ts` 신규 파일 전문:
 
@@ -888,7 +888,7 @@ describe('classifyGeminiFailure', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/gemini/gemini.errors.spec.ts
@@ -896,7 +896,9 @@ npm test -- src/clients/gemini/gemini.errors.spec.ts
 
 Expected: FAIL — `Cannot find module './gemini.errors' from 'src/clients/gemini/gemini.errors.spec.ts'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
+
+> **[구현 이탈 — `9f3e793`]** `messageOf`가 `error instanceof Error`를 쓰지 않고 덕 타이핑으로 `message`를 읽는다. SDK 내부 `fetch`의 실패는 undici가 호스트 realm에서 만들고 jest는 테스트를 vm 샌드박스에서 돌리므로, `instanceof Error`가 거짓이 되면 `status`가 없는 오류의 메시지 판정이 테스트 안에서만 통째로 죽는다 — `26ad606`(N-1)이 `causeMessage`에서 고친 것과 같은 문제다. 회귀 테스트 `다른 realm에서 만들어진 오류의 메시지도 읽는다`가 `vm.runInNewContext`로 이 상황을 재현한다.
 
 `backend/src/clients/gemini/gemini.errors.ts` 신규 파일 전문:
 
@@ -951,7 +953,7 @@ export function classifyGeminiFailure(
 }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -961,7 +963,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/clients/gemini/gemini.errors.ts backend/src/clients/gemini/gemini.errors.spec.ts
@@ -989,7 +991,9 @@ callExternal이 SDK 호출을 감싼 자리에서만 불린다 — 모델 출력
 - Consumes: Task 2의 `callExternal`·`ExternalServiceError`, Task 4의 `classifyGeminiFailure`
 - Produces: `class GeminiClient { generate(prompt: string, opts?: GeminiGenerateOptions): Promise<string> }` · `interface GeminiGenerateOptions { model?, systemInstruction?, temperature? }`
 
-- [ ] **Step 1: SDK 현행 시그니처를 context7로 확인**
+- [x] **Step 1: SDK 현행 시그니처를 context7로 확인**
+
+> **[확인 완료 — 계획과 일치]** `backend/node_modules/@google/genai` 는 `2.13.0`이고, 설치본 `dist/genai.d.ts`가 계획이 적은 줄번호와 그대로 맞는다 — `GenerateContentConfig` `:4969` · `abortSignal?: AbortSignal` **최상위** `:4978` · `systemInstruction` `:4983` · `temperature` `:4989` · `ApiError { status: number }` `:475` · `GenerateContentParameters { model, contents, config? }` `:5129-5139`. context7(`/googleapis/js-genai`)도 같은 shape을 준다. context7이 추가로 확인해 준 사실 하나: 중단 시 SDK는 fetch가 던진 **네이티브 `DOMException`(`name: 'AbortError'`)을 감싸지 않고 그대로 재던진다**(`src/_api_client.ts`) — `classifyCommonFailure`가 `name`을 덕 타이핑으로 보는 것이 맞다.
 
 spec `:650`이 요구하는 확인이다. context7에서 `@google/genai`(버전 `2.13.x`)를 조회해 아래 둘을 대조한다.
 
@@ -1009,7 +1013,9 @@ export declare class ApiError extends Error { status: number; }  // :475
 
 SDK 타입 정의가 명시하는 사실도 함께 기록해 둔다 — **`abortSignal`은 우리 쪽만 끊는다. Gemini는 계속 생성하고 과금은 발생한다.**
 
-- [ ] **Step 2: 실패하는 테스트 작성**
+- [x] **Step 2: 실패하는 테스트 작성**
+
+> **[구현 이탈 — `8b72103`]** `model·contents·systemInstruction·temperature를 SDK에 넘긴다` 케이스에서 아래 코드의 **중첩 `expect.objectContaining`을 쓰지 않았다.** `expect.objectContaining`은 `any`를 반환하므로 `config:` 자리에 넣는 순간 `GenerateContentParameters`가 준 타입이 지워지고, Global Constraints `:62-75`가 타입 있는 mock을 고른 이유(`.cofnig` 오타를 컴파일 단계에서 잡는 것)가 그대로 사라진다. eslint `no-unsafe-assignment`(error)에도 실제로 걸려 린트를 통과하지 못했다. 기록된 인자를 `const [params] = generateContent.mock.calls[0];`로 읽어 필드별로 단정한다 — 검증 내용은 동일하고 타입만 살아난다.
 
 `backend/src/clients/gemini/gemini.client.spec.ts` 신규 파일 전문:
 
@@ -1216,7 +1222,7 @@ describe('GeminiClient', () => {
 });
 ```
 
-- [ ] **Step 3: 실패를 확인**
+- [x] **Step 3: 실패를 확인**
 
 ```
 npm test -- src/clients/gemini/gemini.client.spec.ts
@@ -1224,7 +1230,7 @@ npm test -- src/clients/gemini/gemini.client.spec.ts
 
 Expected: FAIL — `Cannot find module './gemini.client' from 'src/clients/gemini/gemini.client.spec.ts'`
 
-- [ ] **Step 4: 구현**
+- [x] **Step 4: 구현**
 
 `backend/src/clients/gemini/gemini.client.ts` 신규 파일 전문:
 
@@ -1305,7 +1311,7 @@ export class GeminiClient {
 }
 ```
 
-- [ ] **Step 5: 통과를 확인**
+- [x] **Step 5: 통과를 확인**
 
 ```
 npm test
@@ -1315,7 +1321,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add backend/src/clients/gemini/gemini.client.ts backend/src/clients/gemini/gemini.client.spec.ts
