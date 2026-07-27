@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 
@@ -47,11 +48,31 @@ async function createClient(
   return moduleRef.get(GeminiClient);
 }
 
+/**
+ * Logger.error의 첫 인자가 any라 여기서 한 번만 좁힌다.
+ * unknown을 거치는 것은 call-external.spec.ts:22-25와 같은 이유다 —
+ * jest.SpyInstance의 mock.calls 원소가 any로 추론돼 no-unsafe-member-access에 걸린다.
+ */
+function loggedText(spy: jest.SpyInstance, call = 0): string {
+  const calls = spy.mock.calls as unknown as unknown[][];
+  return String(calls[call][0]);
+}
+
+let errorLog: jest.SpyInstance;
+
 beforeEach(() => {
   generateContent.mockReset().mockResolvedValue({ text: '생성된 답변' });
   GoogleGenAIMock.mockReset().mockImplementation(() => ({
     models: { generateContent },
   }));
+  // 실패 경로를 도는 테스트가 여럿이라 스파이를 걸지 않으면 콘솔이 ERROR로 덮인다.
+  // 그보다 중요한 이유는 이 파일이 만드는 로그를 단정할 대상으로 삼는 것이다.
+  errorLog = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+  jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('GeminiClient', () => {
@@ -196,5 +217,54 @@ describe('GeminiClient', () => {
     await expect(client.generate('안녕')).rejects.toMatchObject({
       kind: 'timeout',
     });
+  });
+});
+
+describe('GeminiClient — 로그 계약', () => {
+  /**
+   * callExternal의 마스킹은 원인 메시지에만 걸린다. operation에 실은 것은
+   * 무엇이든 날것으로 로그에 간다 — 그리고 마스킹은 자격증명 패턴을 노리는 것이라
+   * 실명·카드번호는 애초에 잡지 못한다. 방어는 operation에 사용자 데이터를
+   * 넣지 않는 것뿐이고, 그 계약을 지키는 것은 이 테스트다.
+   */
+
+  const PROMPT =
+    '홍길동, 카드번호 4111-1111-1111-1111 로 제주 3박4일 일정을 짜줘';
+  const SYSTEM_INSTRUCTION = '너는 사내 규정 문서 X를 아는 여행 플래너다';
+
+  async function generateAndFail(): Promise<void> {
+    generateContent.mockRejectedValue(
+      Object.assign(new Error('unauthorized'), { status: 401 }),
+    );
+    const client = await createClient();
+    await client
+      .generate(PROMPT, { systemInstruction: SYSTEM_INSTRUCTION })
+      .catch(() => undefined);
+  }
+
+  it('실패 로그에 프롬프트 원문이 남지 않는다', async () => {
+    await generateAndFail();
+
+    const logged = loggedText(errorLog);
+    expect(logged).not.toContain('홍길동');
+    expect(logged).not.toContain('4111-1111-1111-1111');
+    expect(logged).not.toContain('제주 3박4일');
+  });
+
+  it('실패 로그에 systemInstruction 원문이 남지 않는다', async () => {
+    await generateAndFail();
+
+    expect(loggedText(errorLog)).not.toContain('사내 규정 문서 X');
+  });
+
+  it('실패 로그에 프롬프트 길이는 남는다', async () => {
+    // 반대 방향 짝. 과잉 방어로 진단 정보까지 지우면 어떤 요청이 실패했는지
+    // 추적할 수 없고, "아무것도 안 남긴다"가 계약을 만족시켜 버린다.
+    await generateAndFail();
+
+    const logged = loggedText(errorLog);
+    expect(logged).toContain(`prompt=${PROMPT.length}자`);
+    expect(logged).toContain('gemini');
+    expect(logged).toContain('auth');
   });
 });
