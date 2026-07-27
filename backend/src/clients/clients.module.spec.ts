@@ -8,9 +8,11 @@ jest.mock('@qdrant/js-client-rest', () => ({ QdrantClient: jest.fn() }));
 import { ClientsModule } from './clients.module';
 import { GeminiClient } from './gemini/gemini.client';
 import { QdrantSearchClient } from './qdrant/qdrant.client';
+import { TeiClient } from './tei/tei.client';
 
 const ENV = {
   GEMINI_API_KEY: 'test-key',
+  TEI_BASE_URL: 'http://tei.test:8080',
   QDRANT_URL: 'http://qdrant.test:6333',
 };
 
@@ -31,12 +33,13 @@ describe('ClientsModule', () => {
     }).compile();
 
     expect(moduleRef.get(GeminiClient)).toBeInstanceOf(GeminiClient);
+    expect(moduleRef.get(TeiClient)).toBeInstanceOf(TeiClient);
     expect(moduleRef.get(QdrantSearchClient)).toBeInstanceOf(
       QdrantSearchClient,
     );
   });
 
-  it('두 클라이언트를 외부로 export한다', async () => {
+  it('세 클라이언트를 외부로 export한다', async () => {
     // providers에만 있고 exports에 없으면 위 테스트는 그대로 통과한다 —
     // 테스트 모듈이 ClientsModule을 import하면 provider 스코프 안에서
     // 해석되기 때문이다. 소비자 모듈 관점을 따로 세워야 export가 검증된다.
@@ -46,20 +49,27 @@ describe('ClientsModule', () => {
       providers: [
         {
           provide: ConsumerModule,
-          useFactory: (gemini: GeminiClient, qdrant: QdrantSearchClient) => ({
+          useFactory: (
+            gemini: GeminiClient,
+            tei: TeiClient,
+            qdrant: QdrantSearchClient,
+          ) => ({
             gemini,
+            tei,
             qdrant,
           }),
-          inject: [GeminiClient, QdrantSearchClient],
+          inject: [GeminiClient, TeiClient, QdrantSearchClient],
         },
       ],
     }).compile();
 
     const consumer = moduleRef.get<{
       gemini: GeminiClient;
+      tei: TeiClient;
       qdrant: QdrantSearchClient;
     }>(ConsumerModule);
     expect(consumer.gemini).toBeInstanceOf(GeminiClient);
+    expect(consumer.tei).toBeInstanceOf(TeiClient);
     expect(consumer.qdrant).toBeInstanceOf(QdrantSearchClient);
   });
 

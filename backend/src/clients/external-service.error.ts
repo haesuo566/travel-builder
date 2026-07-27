@@ -3,7 +3,7 @@
  * 클라이언트를 추가할 때 이 유니온에 리터럴 한 줄을 더하는 것 외에는
  * 공통 파일(call-external.ts · external-service.filter.ts)이 바뀌지 않아야 한다.
  */
-export type ExternalService = 'gemini' | 'qdrant';
+export type ExternalService = 'gemini' | 'qdrant' | 'tei';
 
 /**
  * 실패의 책임 귀속을 타입으로 강제한다.

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { GeminiClient } from './gemini/gemini.client';
 import { QdrantSearchClient } from './qdrant/qdrant.client';
+import { TeiClient } from './tei/tei.client';
 
 /**
  * 외부 서비스 클라이언트 모음.
@@ -16,7 +17,7 @@ import { QdrantSearchClient } from './qdrant/qdrant.client';
  */
 @Module({
   imports: [ConfigModule],
-  providers: [GeminiClient, QdrantSearchClient],
-  exports: [GeminiClient, QdrantSearchClient],
+  providers: [GeminiClient, TeiClient, QdrantSearchClient],
+  exports: [GeminiClient, TeiClient, QdrantSearchClient],
 })
 export class ClientsModule {}
