@@ -1418,7 +1418,7 @@ payload 키 문자열이 코드 한 곳에만 존재하게 한다. 서비스 계
 
 > **[계획 판단]** spec은 `TourSearchFilter`를 인터페이스 절(`:439`)에서는 `qdrant.client.ts`에, 경계표 행(`:576`)에서는 `tour-content-payload.ts`에 놓았다. **경계표 쪽을 따른다** — `buildQdrantFilter`가 이 타입을 받으므로 여기 두지 않으면 두 파일이 서로를 import하는 순환이 생긴다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/qdrant/tour-content-payload.spec.ts` 신규 파일 전문:
 
@@ -1564,7 +1564,7 @@ describe('buildQdrantFilter', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/qdrant/tour-content-payload.spec.ts
@@ -1572,7 +1572,18 @@ npm test -- src/clients/qdrant/tour-content-payload.spec.ts
 
 Expected: FAIL — `Cannot find module './tour-content-payload' from 'src/clients/qdrant/tour-content-payload.spec.ts'`
 
-- [ ] **Step 3: 구현**
+> **[구현 이탈 — `dcd0980`]** `buildQdrantFilter`가 `filter[field] !== undefined`가 아니라
+> **`filter[field]?.trim()`이 비면 그 조건을 넣지 않는다.** spec `:320` 표의 **C** 행이 지정한 규칙인데
+> 아래 코드 블록에 반영돼 있지 않다(Task 8과 같은 원인 — 계획 갱신본이 spec 갱신본보다 먼저 커밋됐다).
+>
+> 계획대로면 `{ contenttypeid: '' }`가 `must: [{ match: { value: '' } }]`가 되어 payload의 어떤 값과도
+> 매치되지 않는다 — **예외 없이 "정상 200 + 결과 없음"** 이다. Task 8이 502로 끊는 payload 전 건 불량과
+> 같은 종류인데 이쪽은 흔적조차 남지 않는다. 계획 테스트에는 이 케이스가 없었다.
+>
+> 남기는 조건은 **trim한 값**을 쓴다. 이건 spec 문면에서 한 걸음 더 간 것이다 — `' 12 '`도 `''`와 같은
+> 이유로(payload의 `12`와 안 맞아 조용히 결과 없음) 실패하고, `gemini.client.ts:60`도 trim한 값을 쓴다.
+
+- [x] **Step 3: 구현**
 
 `backend/src/clients/qdrant/tour-content-payload.ts` 신규 파일 전문:
 
@@ -1670,7 +1681,7 @@ export function buildQdrantFilter(
 }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -1680,7 +1691,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/clients/qdrant/tour-content-payload.ts backend/src/clients/qdrant/tour-content-payload.spec.ts
@@ -1736,7 +1747,7 @@ TourSearchFilter를 client가 아니라 여기 둔 것은 설계 문서의 경�
 >
 > 골격을 택한 이유는 묶음 B가 세운 원칙 **"확정이 추측을 이긴다"** 가 그대로 적용되기 때문이다 — `status`는 HTTP 응답 상태 그 자체이고 문자열 정규식은 그걸 추측하려는 대체 수단이다. 실제로 Qdrant는 컬렉션 부재에 404를 내므로 문자열 경로는 **상태를 아예 못 읽을 때의 안전망**이고(core가 `isCollectionNotFound`에 남긴 주석이 바로 그 상황이다), 그 용도로 쓰면 두 규칙이 충돌하지 않는다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/qdrant/qdrant.errors.spec.ts` 신규 파일 전문:
 
@@ -1906,7 +1917,7 @@ describe('classifyQdrantFailure — shape과 무관한 케이스', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/qdrant/qdrant.errors.spec.ts
@@ -1914,7 +1925,19 @@ npm test -- src/clients/qdrant/qdrant.errors.spec.ts
 
 Expected: FAIL — `Cannot find module './qdrant.errors' from 'src/clients/qdrant/qdrant.errors.spec.ts'`
 
-- [ ] **Step 3: 구현**
+> **[구현 이탈 — `a16bbaf`]** 머리말 정규식을 `/^Unexpected Response:\s*(\d{3})\b/`로 구현했다.
+> 아래 코드 블록에는 **`^` 앵커와 `\b`가 둘 다 없다.** spec `:840`이 지정한 형태를 따랐고,
+> spec `:843`은 "**`^` 앵커가 이 규칙의 핵심이다**"라고 못 박는다 — SDK가 머리말 뒤에 응답 본문을
+> `JSON.stringify`로 통째로 이어붙이므로, 앵커가 없으면 본문이 실어 나르는 임의의 숫자를 상태로 읽는다.
+> 묶음 B에서 토큰 수 `1429852`의 `429`가 영구 실패를 `quota`로 둔갑시킨 것과 같은 병이다.
+>
+> **테스트도 아래 블록보다 늘렸다.** 계획의 fixture에는 **상태와 본문이 서로 다른 kind를 가리키는 입력이
+> 하나도 없어서**, 판정을 `classifyByStatus(...) ?? classifyByDetail(...)`(= spec 초안의 "상태 404 **또는**
+> 문자열 not-found")로 되돌려도 전 케이스가 그대로 통과한다. 변이 실행으로 확인했다 — 그 변이는 계획
+> fixture만으로는 **생존한다.** `400`·`500`·`429`·`404` 각각에 본문 문구를 어긋나게 넣은 8건을 추가해
+> 3단계 골격의 핵심 계약("상태가 문자열을 이긴다")을 고정했다.
+
+- [x] **Step 3: 구현**
 
 `backend/src/clients/qdrant/qdrant.errors.ts` 신규 파일 전문:
 
@@ -2055,7 +2078,7 @@ export function classifyQdrantFailure(
 }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -2065,7 +2088,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/clients/qdrant/qdrant.errors.ts backend/src/clients/qdrant/qdrant.errors.spec.ts
@@ -2102,7 +2125,7 @@ QdrantClientTimeoutError를 여기서 잡는 이유는 SDK가 fetch의 AbortErro
 - Consumes: Task 2의 `callExternal`·`ExternalServiceError`, Task 6의 `parseTourContentPayload`·`buildQdrantFilter`·`TourContentPayload`·`TourSearchFilter`, Task 7의 `classifyQdrantFailure`
 - Produces: `class QdrantSearchClient { search(vector, opts?): Promise<TourSearchHit[]>; getCollectionInfo(): Promise<QdrantCollectionInfo> }` · `interface QdrantSearchOptions` · `interface TourSearchHit` · `interface QdrantCollectionInfo`
 
-- [ ] **Step 1: SDK 현행 시그니처를 context7로 확인**
+- [x] **Step 1: SDK 현행 시그니처를 context7로 확인**
 
 spec `:480`·`:650`이 요구하는 확인이다. context7에서 `@qdrant/js-client-rest`(버전 `1.18.x`)를 조회해 아래를 대조한다.
 
@@ -2120,7 +2143,7 @@ ScoredPoint  = { id, version, score, payload?, vector?, ... }  // openapi/genera
 QdrantClientParams.timeout  // 밀리초. 기본 300000 (qdrant-client.js:11)
 ```
 
-- [ ] **Step 2: 실패하는 테스트 작성**
+- [x] **Step 2: 실패하는 테스트 작성**
 
 `backend/src/clients/qdrant/qdrant.client.spec.ts` 신규 파일 전문:
 
@@ -2439,7 +2462,7 @@ describe('QdrantSearchClient.getCollectionInfo', () => {
 });
 ```
 
-- [ ] **Step 3: 실패를 확인**
+- [x] **Step 3: 실패를 확인**
 
 ```
 npm test -- src/clients/qdrant/qdrant.client.spec.ts
@@ -2447,7 +2470,17 @@ npm test -- src/clients/qdrant/qdrant.client.spec.ts
 
 Expected: FAIL — `Cannot find module './qdrant.client' from 'src/clients/qdrant/qdrant.client.spec.ts'`
 
-- [ ] **Step 4: 구현**
+> **[구현 이탈 — `1efea21`]** `QDRANT_COLLECTION`에 `ConfigService.get`의 **두 번째 인자를 쓰지 않는다.**
+> 아래 코드 블록은 `config.get<string>('QDRANT_COLLECTION', DEFAULT_COLLECTION)`인데, 이는 spec `:269`가
+> 명시적으로 금지한 형태다("클라이언트는 두 번째 인자를 쓰지 않는다" — 리뷰에서 grep으로 찾을 수 있게 세운 규칙).
+> 그 인자는 값이 `undefined`일 때만 폴백하므로 `.env`의 `QDRANT_COLLECTION=`(값만 빈 줄) 한 줄이
+> 빈 컬렉션 이름을 그대로 SDK로 내보낸다. 커밋된 `gemini.client.ts:46`과 같은
+> `config.get<string>(...)?.trim() || DEFAULT`로 구현했다. `QDRANT_API_KEY`도 같은 이유로 `?.trim()`을 거친다.
+>
+> **원인:** 이 계획의 갱신본 `f4648d5`가 spec 갱신본 `4a28251`("선택 값 규칙을 호출 인자까지 확장")보다
+> **먼저** 커밋돼 규칙이 코드 블록에 역반영되지 않았다. Task 6도 같은 원인의 이탈이다.
+
+- [x] **Step 4: 구현**
 
 `backend/src/clients/qdrant/qdrant.client.ts` 신규 파일 전문:
 
@@ -2609,7 +2642,7 @@ export class QdrantSearchClient {
 }
 ```
 
-- [ ] **Step 5: 통과를 확인**
+- [x] **Step 5: 통과를 확인**
 
 ```
 npm test
@@ -2619,7 +2652,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add backend/src/clients/qdrant/qdrant.client.ts backend/src/clients/qdrant/qdrant.client.spec.ts
@@ -2651,7 +2684,7 @@ timeout을 명시하는 이유는 SDK 기본값이 300초라서다." -- backend/
 - Consumes: Task 5의 `GeminiClient`, Task 8의 `QdrantSearchClient`
 - Produces: `class ClientsModule` (exports: `GeminiClient`, `QdrantSearchClient`)
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/clients.module.spec.ts` 신규 파일 전문:
 
@@ -2693,7 +2726,7 @@ describe('ClientsModule', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/clients.module.spec.ts
@@ -2701,7 +2734,7 @@ npm test -- src/clients/clients.module.spec.ts
 
 Expected: FAIL — `Cannot find module './clients.module' from 'src/clients/clients.module.spec.ts'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `backend/src/clients/clients.module.ts` 신규 파일 전문:
 
@@ -2730,7 +2763,7 @@ import { QdrantSearchClient } from './qdrant/qdrant.client';
 export class ClientsModule {}
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -2740,7 +2773,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/clients/clients.module.ts backend/src/clients/clients.module.spec.ts
