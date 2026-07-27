@@ -40,7 +40,10 @@ export class GeminiClient {
     // undefined일 때만 폴백해서 .env의 "GEMINI_MODEL="(값만 빈 줄)을 유효한 값으로
     // 받는다. core의 optionalEnv는 ''도 폴백하므로 같은 .env로 core는 돌고
     // backend만 죽는다. 모델 이름이 ''인 상황은 존재하지 않으니 ||가 안전하다.
-    this.defaultModel = config.get<string>('GEMINI_MODEL') || DEFAULT_MODEL;
+    // trim까지 하는 이유는 ||가 공백 문자열을 truthy로 보기 때문이다 — 그러면
+    // 모델명이 '  '인 요청이 실제로 Gemini까지 나갔다가 404로 돌아온다.
+    this.defaultModel =
+      config.get<string>('GEMINI_MODEL')?.trim() || DEFAULT_MODEL;
   }
 
   /** 프롬프트로 텍스트를 생성한다. core의 generate와 같은 시그니처다. */
@@ -53,7 +56,8 @@ export class GeminiClient {
       async () => {
         const response = await this.client.models.generateContent({
           // ??가 아니라 ||다. nullish 연산자는 ''를 유효한 모델명으로 통과시킨다.
-          model: opts.model || this.defaultModel,
+          // env 경로와 독립이라 trim도 여기서 한 번 더 한다.
+          model: opts.model?.trim() || this.defaultModel,
           contents: prompt,
           config: {
             systemInstruction: opts.systemInstruction,

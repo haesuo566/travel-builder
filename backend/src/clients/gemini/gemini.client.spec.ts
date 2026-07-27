@@ -166,6 +166,31 @@ describe('GeminiClient', () => {
     );
   });
 
+  it('GEMINI_MODEL이 공백만 있으면 기본값으로 폴백한다', async () => {
+    // ||는 공백 문자열을 truthy로 본다. 그러면 모델명이 '  '인 요청이 실제로
+    // Gemini까지 나갔다가 404로 돌아온다 — 로그의 "models/   is not found"는
+    // 사람 눈에 "이름이 비었다"로 읽히지 않아 원인이 증상에서 멀어진다.
+    const client = await createClient({
+      GEMINI_API_KEY: 'test-key',
+      GEMINI_MODEL: '  ',
+    });
+    await client.generate('안녕');
+
+    expect(generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-2.0-flash' }),
+    );
+  });
+
+  it('opts.model이 공백만 있으면 기본값으로 폴백한다', async () => {
+    // env 경로와 호출 인자 경로는 독립이다. 한쪽만 막으면 다른 쪽이 그대로 남는다.
+    const client = await createClient();
+    await client.generate('안녕', { model: '  ' });
+
+    expect(generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-2.0-flash' }),
+    );
+  });
+
   it('systemInstruction·temperature 미지정 시 undefined를 넘긴다', async () => {
     // 지정 시 전달만 보면 "언제나 넘긴다"와 "지정했을 때만 넘긴다"를 구별하지
     // 못한다. 여기에 빈 문자열이나 0이 들어가면 SDK가 그것을 유효한 설정으로
