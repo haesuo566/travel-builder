@@ -111,5 +111,11 @@
 | `core/src/services/*.ts` 반환 타입 | `core/src/commands/*.ts`의 요약 포매터 |
 | `core/.env.example` | `core/src/lib/env.ts` |
 | `backend/.env.example` | `backend/src/config/env.validation.ts` |
+| `core/src/lib/qdrantCollection.ts`의 `toPayload` 키·`EXPECTED_DISTANCE` | `backend/src/clients/qdrant/tour-content-payload.ts`의 `TourContentPayload`·`TourSearchFilter` |
+| `core/src/clients/tei.ts`의 `embed` 요청 바디(`normalize`/`truncate`/`prompt_name`) | `backend/src/clients/tei/tei.client.ts`의 `embedQuery` 고정 옵션 |
+| TEI 서버에 떠 있는 임베딩 모델 (벡터 차원·distance를 결정한다) | Qdrant 컬렉션의 실제 차원. backend는 코드로 강제하지 않는다 — `getCollectionInfo()` 실측이 유일한 확인 |
+| `core/src/clients/gemini.ts`의 기본 모델(`GEMINI_MODEL` fallback) | `backend/src/clients/gemini/gemini.client.ts`의 기본 모델 |
+| `core/.env.example`의 `GEMINI_*`·`TEI_BASE_URL`·`QDRANT_*` | `backend/.env.example`, `backend/src/config/env.validation.ts`의 `REQUIRED_KEYS`, `backend/test/setup-env.ts` |
+| `backend/src/clients/external-service.filter.ts`의 응답 본문(`error`=kind, `message`=고정 문구) | `frontend`의 에러 처리. 같은 API가 `ValidationPipe` 400도 내며 그쪽은 `error`="Bad Request", `message`=`string[]`다 — 두 shape을 함께 다뤄야 한다 |
 
 이 짝들은 **타입 시스템이 연결해주지 않는다.** 한쪽만 고치면 컴파일은 통과하고 런타임에 깨진다.
