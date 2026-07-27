@@ -32,6 +32,53 @@ const throwingClassifier = (): never => {
   throw new TypeError("Cannot read properties of undefined (reading 'status')");
 };
 
+describe('ExternalServiceError', () => {
+  /**
+   * name은 로그·스택 추적에서 이 오류를 식별하는 유일한 표식이다.
+   * 지워지면 전부 그냥 "Error"가 되고, 로그를 아무리 봐도 외부 호출 실패인지
+   * 우리 코드의 버그인지 구별할 수 없다.
+   */
+  it('name이 ExternalServiceError다', () => {
+    const error = new ExternalServiceError('gemini', 'quota', '쿼터 소진');
+
+    expect(error.name).toBe('ExternalServiceError');
+    expect(String(error)).toContain('ExternalServiceError');
+  });
+
+  it('message와 service·kind를 그대로 보관한다', () => {
+    const error = new ExternalServiceError(
+      'qdrant',
+      'not-found',
+      '컬렉션 없음',
+    );
+
+    expect(error.message).toBe('컬렉션 없음');
+    expect(error.service).toBe('qdrant');
+    expect(error.kind).toBe('not-found');
+  });
+
+  it('cause를 Error에 전달한다', () => {
+    // super(message, options)에서 options를 빠뜨려도 타입 검사는 통과한다.
+    // cause가 끊기면 causeMessage가 체인을 못 펼쳐 로그가 껍데기만 남는다.
+    const original = new Error('원본');
+    const error = new ExternalServiceError('gemini', 'upstream', '감쌈', {
+      cause: original,
+    });
+
+    expect(error.cause).toBe(original);
+  });
+
+  it('cause 없이 만들면 cause가 없다', () => {
+    const error = new ExternalServiceError(
+      'gemini',
+      'empty-response',
+      '빈 응답',
+    );
+
+    expect(error.cause).toBeUndefined();
+  });
+});
+
 describe('classifyCommonFailure', () => {
   it('AbortError를 timeout으로 판정한다', () => {
     const error = Object.assign(new Error('중단됨'), { name: 'AbortError' });
@@ -106,6 +153,22 @@ describe('callExternal', () => {
     expect(external.service).toBe('gemini');
     expect(external.kind).toBe('upstream');
     expect(external.cause).toBeInstanceOf(Error);
+  });
+
+  it('감싼 예외의 message에 service와 operation이 들어간다', async () => {
+    // 빈 문자열로 바꿔도 아무 테스트가 깨지지 않던 자리다. 이 message는
+    // 응답에 쓰이지 않으므로 스택 추적에서 어느 호출이 실패했는지 알려주는
+    // 유일한 단서다.
+    const failure = await callExternal(
+      'qdrant',
+      'query(tour_contents)',
+      alwaysNull,
+      () => Promise.reject(new Error('원인')),
+    ).catch((error: unknown) => error);
+
+    const message = (failure as ExternalServiceError).message;
+    expect(message).toContain('qdrant');
+    expect(message).toContain('query(tour_contents)');
   });
 
   it('이미 ExternalServiceError면 다시 감싸지 않는다', async () => {
