@@ -24,8 +24,8 @@ export function registerCollectList(program: Command): void {
     .option("--page-size <n>", "페이지당 건수", "1000")
     .option("--max-pages <n>", "최대 페이지 수", "100")
     .action(async (options: CollectListCliOptions) => {
-      const pageSize = parsePositiveInt("--page-size", options.pageSize, 1000);
-      const maxPages = parsePositiveInt("--max-pages", options.maxPages, 100);
+      const pageSize = parsePositiveInt("--page-size", options.pageSize, 100);
+      const maxPages = parsePositiveInt("--max-pages", options.maxPages, 1);
 
       const tourApi = new TourApiClient();
       const pg = new PostgresClient();
