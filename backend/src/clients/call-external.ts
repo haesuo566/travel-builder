@@ -58,10 +58,32 @@ function maskSecrets(text: string): string {
     .replace(/(Bearer\s+)[\w.-]+/gi, '$1***');
 }
 
-/** 원인 메시지. API 키와 프롬프트 전문은 여기에 담기지 않는다. */
+/**
+ * 원인 메시지. API 키와 프롬프트 전문은 여기에 담기지 않는다.
+ *
+ * cause 체인을 판정과 같은 방식으로 펼친다. 판정은 안쪽을 보는데 로그가 바깥만 보면
+ * Node의 fetch 실패가 전부 "fetch failed" 한 줄로 남아 정보량이 0이 된다 —
+ * 호스트도 포트도 사라지고 ECONNREFUSED("서버가 안 떠 있다")인지
+ * ENOTFOUND("호스트명 오타")인지 구별할 수 없다.
+ */
 function causeMessage(error: unknown): string {
-  if (error instanceof Error) return maskSecrets(error.message);
-  return maskSecrets(typeof error === 'string' ? error : String(error));
+  const parts: string[] = [];
+  for (const item of unwrapCauses(error)) {
+    if (!(item instanceof Error)) continue;
+    if (item.message) parts.push(item.message);
+    // 듀얼스택 localhost는 AggregateError의 message가 빈 문자열이고
+    // 주소·포트가 errors[0]에만 있다. 한 겹 벗기는 것만으로는 못 얻는다.
+    if (item instanceof AggregateError) {
+      const [first] = item.errors as unknown[];
+      if (first instanceof Error && first.message) parts.push(first.message);
+    }
+  }
+
+  // 체인에서 아무 메시지도 못 얻으면(비-Error를 던진 경우) 값 자체를 남긴다.
+  const joined = parts.join(' ← ');
+  return maskSecrets(
+    joined || (typeof error === 'string' ? error : String(error)),
+  );
 }
 
 /**

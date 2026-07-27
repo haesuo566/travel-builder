@@ -329,6 +329,82 @@ describe('callExternal', () => {
     expect(logged).toContain('limit=10');
   });
 
+  /**
+   * 판정은 cause 체인을 펼쳐 안쪽을 보는데 로그가 바깥만 보면 정보량이 0이 된다.
+   * Node의 fetch 실패는 바깥이 항상 "fetch failed"라 호스트도 포트도 사라지고
+   * ECONNREFUSED("서버가 안 떠 있다")인지 ENOTFOUND("호스트명 오타")인지 구별할 수 없다.
+   */
+  it('cause 체인 안쪽 메시지가 로그에 남는다', async () => {
+    const inner = Object.assign(
+      new Error('connect ECONNREFUSED 127.0.0.1:8080'),
+      { code: 'ECONNREFUSED' },
+    );
+    const outer = new TypeError('fetch failed', { cause: inner });
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      Promise.reject(outer),
+    ).catch(() => undefined);
+
+    const logged = firstLogMessage(errorLog);
+    expect(logged).toContain('fetch failed');
+    expect(logged).toContain('connect ECONNREFUSED 127.0.0.1:8080');
+  });
+
+  it('AggregateError의 빈 message를 건너뛰고 errors[0]을 쓴다', async () => {
+    // 듀얼스택 localhost의 실측 모양(Node v24). 한 겹 벗겨도 message가 빈 문자열이라
+    // 체인만 훑어서는 주소를 못 얻는다.
+    const aggregate = Object.assign(
+      new AggregateError(
+        [new Error('connect ECONNREFUSED ::1:59999')],
+        '', // 실측에서 빈 문자열이다
+      ),
+      { code: 'ECONNREFUSED' },
+    );
+    const outer = new TypeError('fetch failed', { cause: aggregate });
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      Promise.reject(outer),
+    ).catch(() => undefined);
+
+    expect(firstLogMessage(errorLog)).toContain(
+      'connect ECONNREFUSED ::1:59999',
+    );
+  });
+
+  it('비-Error를 던져도 값이 로그에 남는다', async () => {
+    // 이 분기를 지워도 아무 테스트가 깨지지 않던 자리다. 지우면 catch 안에서
+    // 새 예외가 나 통로 자체가 무너진다.
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      // 비-Error 거부가 바로 이 테스트의 대상이다. 규칙을 지키면 검증 대상이 사라진다.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      Promise.reject('문자열로 던진 실패'),
+    ).catch(() => undefined);
+
+    expect(firstLogMessage(errorLog)).toContain('문자열로 던진 실패');
+  });
+
+  it('비-Error 객체를 던져도 로그가 끊기지 않는다', async () => {
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      // 위와 같은 이유. SDK가 Error가 아닌 값을 거부 이유로 넘기는 경우를 재현한다.
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      Promise.reject({ code: 'ECONNREFUSED' }),
+    ).catch(() => undefined);
+
+    // 판정은 살아 있어야 한다 — 체인 탐색이 Error만 보느라 code를 놓치면 안 된다.
+    expect(firstLogMessage(errorLog)).toContain('unavailable');
+  });
+
+  it('체인 안쪽 메시지에도 마스킹이 걸린다', async () => {
+    // 체인을 펼쳐 더 많은 정보를 남기게 됐으므로 마스킹이 새 경로에도 걸려야 한다.
+    const inner = new Error('요청 거절: ?api-key=inner-secret-7');
+    const outer = new TypeError('fetch failed', { cause: inner });
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      Promise.reject(outer),
+    ).catch(() => undefined);
+
+    const logged = firstLogMessage(errorLog);
+    expect(logged).not.toContain('inner-secret-7');
+    expect(logged).toContain('요청 거절');
+  });
+
   it('자격증명이 없는 원인 메시지는 그대로 남는다', async () => {
     // 반대 방향 짝. 과잉 마스킹(URL 통삭제·긴 토큰 통삭제)으로 진단 정보를 잃으면
     // 로그가 남아 있어도 무엇이 실패했는지 알 수 없다.
