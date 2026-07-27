@@ -56,6 +56,13 @@ describe('classifyGeminiFailure', () => {
     ).toBe('invalid-request');
   });
 
+  it('404는 not-found다', () => {
+    // GEMINI_MODEL 오타(gemini-2.5-flesh)나 미배포 모델 지정이 여기로 온다.
+    // Gemini는 멀쩡하고 틀린 것은 우리 .env이므로 외부 사정(502)이 아니라
+    // 우리 설정(500)이다 — Qdrant가 컬렉션 이름 오타를 끊는 것과 같은 kind다.
+    expect(classifyGeminiFailure(apiError(404))).toBe('not-found');
+  });
+
   it('500은 upstream이다', () => {
     expect(classifyGeminiFailure(apiError(500))).toBe('upstream');
   });
@@ -177,6 +184,26 @@ describe('classifyGeminiFailure — 3단계: 상태가 없을 때만 메시지�
     expect(classifyGeminiFailure(new Error('Quota exceeded for model'))).toBe(
       'quota',
     );
+  });
+
+  it('is not found for API version 메시지는 not-found다', () => {
+    // 스트리밍 경로는 HTTP 상태가 아니라 응답 본문의 code로 ApiError를 만든다.
+    // 상태를 못 읽는 경우가 있어 3단계에도 같은 판정을 둔다.
+    const error = new Error(
+      'models/gemini-2.5-flesh is not found for API version v1beta',
+    );
+    expect(classifyGeminiFailure(error)).toBe('not-found');
+  });
+
+  it('NOT_FOUND와 INVALID_ARGUMENT가 함께 있으면 not-found가 이긴다', () => {
+    // 두 토큰이 한 본문에 실린 입력이 3단계의 순서를 관찰할 수 있는 유일한
+    // 형태다. spec이 not-found를 invalid-request보다 위에 둔 이유는
+    // 모델명 오설정(우리 설정, 500)이 외부의 요청 거절(502)로 새면
+    // 응답을 받은 사람이 Gemini 장애를 의심하기 때문이다.
+    const error = new Error(
+      '{"error":{"message":"models/gemini-2.5-flesh is not found for API version v1beta","status":"NOT_FOUND","details":[{"reason":"INVALID_ARGUMENT"}]}}',
+    );
+    expect(classifyGeminiFailure(error)).toBe('not-found');
   });
 
   it('PERMISSION_DENIED 메시지는 auth다', () => {

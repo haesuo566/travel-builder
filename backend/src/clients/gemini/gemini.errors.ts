@@ -39,6 +39,9 @@ function classifyByStatus(
       : 'invalid-request';
   }
   if (status === 401 || status === 403) return 'auth';
+  // 모델명 오설정이다. 외부 사정(502)이 아니라 우리 설정(500)으로 청구한다 —
+  // Qdrant가 컬렉션 이름 오타를 not-found로 끊는 것과 같은 종류의 실패다.
+  if (status === 404) return 'not-found';
   if (status === 429) return 'quota';
   if (status >= 500 && status <= 599) return 'upstream';
   return null;
@@ -58,6 +61,11 @@ function classifyByMessage(message: string): ExternalFailureKind | null {
     return 'quota';
   }
   if (/API key|PERMISSION_DENIED/i.test(message)) return 'auth';
+  // INVALID_ARGUMENT보다 먼저 본다. 모델을 못 찾은 응답의 본문에는 두 토큰이
+  // 함께 실릴 수 있고, 그때 오설정을 502로 내보내면 Gemini 장애로 읽힌다.
+  if (/is not found for API version|NOT_FOUND/i.test(message)) {
+    return 'not-found';
+  }
   if (/INVALID_ARGUMENT/i.test(message)) return 'invalid-request';
   return null;
 }
