@@ -21,13 +21,15 @@ const BASE_URL = 'http://tei.test:8080';
  */
 let fetchSpy: jest.SpyInstance<Promise<Response>, Parameters<typeof fetch>>;
 
-async function createClient(): Promise<TeiClient> {
+async function createClient(
+  env: Record<string, string> = { TEI_BASE_URL: BASE_URL },
+): Promise<TeiClient> {
   const moduleRef = await Test.createTestingModule({
     imports: [
       ConfigModule.forRoot({
         ignoreEnvFile: true,
         skipProcessEnv: true,
-        load: [() => ({ TEI_BASE_URL: BASE_URL })],
+        load: [() => env],
       }),
     ],
     providers: [TeiClient],
@@ -50,6 +52,18 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+describe('TeiClient 생성자', () => {
+  it('TEI_BASE_URL이 없으면 부팅이 실패한다', async () => {
+    // review-CD.md Minor 2. 같은 계약이 QdrantSearchClient에는
+    // qdrant.client.spec.ts:112("QDRANT_URL이 없으면 부팅이 실패한다")로
+    // 이미 고정돼 있는데 TEI 쪽은 비어 있었다. getOrThrow가 get으로 바뀌면
+    // baseUrl이 undefined인 클라이언트가 부팅에 성공하고 첫 질의의
+    // fetch(`${baseUrl}/embed`)에서야 TypeError로 드러난다.
+    await expect(createClient({})).rejects.toThrow(/TEI_BASE_URL/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('TeiClient.embedQuery', () => {

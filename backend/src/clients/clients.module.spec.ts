@@ -106,10 +106,15 @@ describe('ClientsModule', () => {
   it('필수 env가 없으면 모듈 초기화가 실패한다', async () => {
     // 클라이언트 생성자의 getOrThrow가 모듈 조립 시점에 돈다. 이 계약이 깨지면
     // 키 없는 배포가 부팅에 성공하고 첫 사용자 요청에서야 드러난다.
+    //
+    // review-CD.md Minor 2: 패턴 없는 toThrow()는 프로바이더 조립 중 나는
+    // 어떤 오류(예: 오타로 인한 DI 실패)에도 통과한다(pitfall E-4). providers
+    // 배열 순서(GeminiClient가 첫 번째)상 GEMINI_API_KEY가 먼저 걸리므로
+    // 그 이름을 패턴으로 못박는다.
     await expect(
       Test.createTestingModule({
         imports: [configModule({}), ClientsModule],
       }).compile(),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/GEMINI_API_KEY/);
   });
 });
