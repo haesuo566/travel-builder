@@ -1,0 +1,152 @@
+---
+name: tb-plan-writing
+description: travel-builder 실행 계획(plan) 작성 규약. 설계 문서를 TDD 태스크로 쪼개 docs/superpowers/plans/ 에 실패 테스트→실패 확인→구현→통과 확인→커밋 5단계를 복붙 가능한 코드 블록으로 적는다. "구현 계획 세워줘", "태스크로 쪼개줘", "plan 작성", "TDD 계획", "이 설계 어떻게 구현할지 정리해줘" 요청이나, 계획을 수정·보완·태스크 추가하라는 후속 요청에 반드시 이 스킬을 사용할 것. plan-writer 에이전트가 항상 읽는다.
+---
+
+# 실행 계획 작성 규약
+
+계획은 **구현자가 창작하지 않아도 되게 만드는 문서**다. 구현자가 창작하는 만큼 결과가 계획에서 벌어지고, 벌어진 만큼 리뷰가 판정 기준을 잃는다.
+
+경로: `docs/superpowers/plans/{YYYY-MM-DD}-{slug}.md`
+전체 골격은 `references/plan-template.md`에 있다. 처음 쓸 때는 반드시 읽는다.
+
+## 먼저 할 일: spec의 구멍 찾기
+
+계획을 쓰기 전에 spec을 읽으며 다음을 확인한다.
+
+- 인터페이스 시그니처가 태스크로 쪼갤 만큼 구체적인가
+- 두 결정이 서로 모순되지 않는가
+- 각 태스크의 입력이 어디서 오는지 추적 가능한가
+- 에러 처리 표의 모든 행이 구현 가능한 지시인가
+
+**구멍을 발견하면 계획 작성을 멈추고 구멍 목록만 반환한다.** 임의로 메우면 그 임의 판단이 코드가 되고, 리뷰 단계에서 spec 이탈로 다시 잡혀 두 번 일한다.
+
+## 태스크 분할 기준
+
+**하나의 태스크 = 하나의 커밋 = 그 시점에 테스트·타입 검사 전부 통과.**
+
+"Task 3까지 해야 컴파일된다"는 분할은 잘못됐다. 아래 순서를 지키면 대개 자연스럽게 독립된다.
+
+1. 순수 함수·타입 (의존 없음)
+2. 데이터 계층 (스키마 → 조회 → 상태 변경)
+3. 클라이언트·어댑터
+4. 서비스 (위를 조합)
+5. 커맨드·컨트롤러 (배선)
+6. 요약·출력 포매터
+
+태스크가 15개를 넘으면 계획을 쪼개자고 제안한다.
+
+## 태스크 구조
+
+````markdown
+### Task 3: `fetchEnrichInput` — 체인 입력 단건 조회
+
+{이 태스크가 왜 필요한지 1~2문장. 없으면 구현자가 목적 없이 코드를 옮긴다.}
+
+**Files:**
+- Modify: `core/src/lib/tourContentsTable.ts`
+- Test: `core/tests/lib/tourContentsTable.test.ts`
+
+**Interfaces:**
+- Consumes: Task 2의 `structured_text` 컬럼
+- Produces: `fetchEnrichInput(pg: PostgresClient, contentid: string): Promise<EnrichInput | null>`
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`core/tests/lib/tourContentsTable.test.ts` 파일 맨 끝에 추가:
+
+```ts
+{테스트 코드 전문}
+```
+
+- [ ] **Step 2: 실패를 확인**
+
+```
+npm test -- tests/lib/tourContentsTable.test.ts
+```
+
+Expected: FAIL — `fetchEnrichInput` export 없음
+
+- [ ] **Step 3: 구현**
+
+`core/src/lib/tourContentsTable.ts` 맨 끝에 추가:
+
+```ts
+{구현 코드 전문}
+```
+
+- [ ] **Step 4: 통과를 확인**
+
+```
+npm test -- tests/lib/tourContentsTable.test.ts
+npm run typecheck
+```
+
+Expected: PASS
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add core/src/lib/tourContentsTable.ts core/tests/lib/tourContentsTable.test.ts
+git commit -m "feat(core): fetchEnrichInput — 체인 입력을 코드표 조인으로 한 번에 조회
+
+프롬프트용 이름, payload용 원본 코드·좌표, structured_text를 한 쿼리로
+가져온다. 인라인 경로와 백로그 경로가 같은 함수로 같은 입력을 보므로
+재구조화 결과가 달라지지 않는다."
+```
+````
+
+## 다섯 Step을 지키는 이유
+
+| Step | 없으면 |
+|---|---|
+| 실패 테스트 작성 | 구현 이후에 쓴 테스트는 구현을 그대로 베낀다 |
+| **실패 확인** | 통과하는 이유가 구현 때문인지 테스트가 무력해서인지 구분 불가 |
+| 구현 | — |
+| 통과 확인 (**전체 테스트 + 타입 검사**) | 방금 쓴 테스트만 돌리면 회귀를 놓친다 |
+| 커밋 | 태스크가 뭉쳐 되돌릴 단위가 사라진다 |
+
+**Expected 줄에 예상 실패 메시지를 구체적으로 적는다.** `Expected: FAIL`만으로는 구현자가 엉뚱한 이유의 실패를 통과로 오인한다.
+
+## 코드 블록 작성 원칙
+
+**삽입 위치를 특정한다.**
+- 나쁨: "테스트 파일에 테스트를 추가한다"
+- 좋음: "`describe("QdrantStore", ...)` 블록 맨 끝(`deletePoints` 테스트 다음)에 추가"
+
+**전문을 쓴다.** `// ... 기존 코드 ...` 로 얼버무리면 구현자가 그 부분을 창작한다. 기존 블록을 교체할 때는 교체 후 전문을 쓴다.
+
+**계산이 필요한 기대값은 계산 근거를 남긴다.**
+> `countStageStatus` 첫 테스트의 기대값: `embed.pending`은 3 + 7 = 10, `structure.done`은 10 + 3 = 13.
+
+## Global Constraints
+
+문서 앞에 모은다. 태스크마다 반복하지 않는다. 이 저장소에서 항상 들어가는 항목:
+
+- 작업 디렉터리와 명령 실행 위치
+- 언어 규약 (주석·로그·에러 메시지는 한국어)
+- 워크스페이스 고유 제약 (`core`는 ESM이라 상대 import에 `.js` 확장자 필수 등 — `tb-tdd-implement/references/workspaces.md` 참조)
+- 테스트·타입 검사 명령
+- 절대 하지 않을 것 (예: 마이그레이션 프레임워크 도입 금지, 트랜잭션으로 묶지 않기)
+
+## 리뷰 묶음 경계 제안
+
+계획 끝에 **리뷰 묶음**을 제안한다. 오케스트레이터가 이 경계마다 증분 리뷰를 돌린다.
+
+```markdown
+## 리뷰 묶음
+
+| 묶음 | 태스크 | 논리 단위 |
+|---|---|---|
+| A | 1~3 | 스키마·조회 계층 |
+| B | 4~6 | 체인 본체 |
+| C | 7~10 | 배선·CLI·요약 |
+```
+
+하나의 논리적 완결 단위로 3~5개 태스크를 묶는다. 전체를 다 만든 뒤 한 번에 리뷰하면 지적이 뭉쳐 나오고 되돌릴 거리가 멀어진다.
+
+## 하지 말 것
+
+- **완료된 태스크(`- [x]`)를 수정하지 않는다.** 재계획 시에도 마찬가지.
+- **리뷰 지적을 뭉쳐 큰 태스크로 만들지 않는다.** 지적 하나당 태스크 하나 — 커밋이 뭉개진다.
+- **spec에 없는 결정을 조용히 내리지 않는다.** 명시적으로 표시하고 반환 메시지에 올린다.
