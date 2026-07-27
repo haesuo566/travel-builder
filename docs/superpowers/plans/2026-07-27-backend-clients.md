@@ -67,7 +67,7 @@
 - Consumes: 없음
 - Produces: `@google/genai@^2.13.0` · `@qdrant/js-client-rest@^1.18.0`
 
-- [ ] **Step 1: 실패를 확인**
+- [x] **Step 1: 실패를 확인**
 
 ```
 node -e "require('@qdrant/js-client-rest'); require('@google/genai'); console.log('ok')"
@@ -75,7 +75,7 @@ node -e "require('@qdrant/js-client-rest'); require('@google/genai'); console.lo
 
 Expected: FAIL — `Error: Cannot find module '@qdrant/js-client-rest'`
 
-- [ ] **Step 2: 설치**
+- [x] **Step 2: 설치**
 
 ```
 npm install @google/genai@^2.13.0 @qdrant/js-client-rest@^1.18.0
@@ -83,7 +83,7 @@ npm install @google/genai@^2.13.0 @qdrant/js-client-rest@^1.18.0
 
 `core/package.json`과 같은 범위다. 설치 후 `package.json`의 `dependencies`에 두 줄이 들어갔는지 확인한다.
 
-- [ ] **Step 3: 통과를 확인**
+- [x] **Step 3: 통과를 확인**
 
 ```
 node -e "require('@qdrant/js-client-rest'); require('@google/genai'); console.log('ok')"
@@ -95,7 +95,7 @@ Expected: `ok` 출력. 기존 테스트(`app.controller.spec.ts` · `chat.contro
 
 `Cannot use import statement outside a module`이 나오면 즉시 멈추고 보고한다 — 두 SDK 모두 `exports`에 `require` 조건을 갖고 있으므로 이 오류는 나오지 않아야 한다.
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add backend/package.json backend/package-lock.json
@@ -132,7 +132,7 @@ SDK 탓인지 우리 코드 탓인지 가릴 수 없다. TEI는 SDK가 없어 �
 
 > **[spec 미결정 — 계획 판단 1]** 로그의 원인 메시지를 `maskSecrets()`로 마스킹한 뒤 남긴다. spec `:347`("원인 메시지를 남긴다")과 테스트 `:672`("키를 담은 오류를 주입해도 로그에 키가 없다")를 동시에 만족시키는 유일한 방법이다. 새 파일을 만들지 않고 `call-external.ts`의 비공개 함수로 둔다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/call-external.spec.ts` 신규 파일 전문:
 
@@ -321,7 +321,7 @@ describe('callExternal', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/call-external.spec.ts
@@ -329,7 +329,7 @@ npm test -- src/clients/call-external.spec.ts
 
 Expected: FAIL — `Cannot find module './call-external' from 'src/clients/call-external.spec.ts'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `backend/src/clients/external-service.error.ts` 신규 파일 전문:
 
@@ -490,7 +490,7 @@ export async function callExternal<T>(
 }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -500,7 +500,7 @@ npm run lint
 
 Expected: PASS (기존 테스트 포함 전부). 린트가 파일을 고쳤으면 diff를 확인한 뒤 함께 커밋한다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/clients/external-service.error.ts backend/src/clients/call-external.ts backend/src/clients/call-external.spec.ts
@@ -535,7 +535,7 @@ upstream으로 오분류되고, SDK 없는 클라이언트를 붙일 때 이 함
 
 > **[spec 미결정 — 계획 판단 3]** 응답 본문의 `message`는 **kind별 고정 한국어 문구**다. 예외 인스턴스의 `message`를 응답에 쓰지 않으므로 업스트림 원문·자격증명이 구조적으로 새어 나갈 수 없다. 상세는 서버 로그에만 있다.
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/clients/external-service.filter.spec.ts` 신규 파일 전문:
 
@@ -634,7 +634,7 @@ describe('ExternalServiceFilter', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- src/clients/external-service.filter.spec.ts
@@ -642,7 +642,7 @@ npm test -- src/clients/external-service.filter.spec.ts
 
 Expected: FAIL — `Cannot find module './external-service.filter' from 'src/clients/external-service.filter.spec.ts'`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `backend/src/clients/external-service.filter.ts` 신규 파일 전문:
 
@@ -736,7 +736,7 @@ async function bootstrap() {
 void bootstrap();
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -747,7 +747,7 @@ npm run lint
 
 Expected: PASS 전부. e2e도 그대로 통과한다 (`ConfigModule.forRoot`는 아직 없다).
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/clients/external-service.filter.ts backend/src/clients/external-service.filter.spec.ts backend/src/main.ts

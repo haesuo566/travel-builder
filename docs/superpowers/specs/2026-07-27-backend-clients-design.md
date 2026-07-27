@@ -344,6 +344,14 @@ export async function callExternal<T>(
 2. 성공하면 값을 그대로 반환한다.
 3. 던져진 것이 이미 `ExternalServiceError`면 **그대로 다시 던진다** (이중 래핑 금지 — 안쪽에서 정확히 분류한 kind가 바깥에서 `upstream`으로 덮이면 분류가 무의미해진다).
 4. 아니면 `classify(error) ?? classifyCommonFailure(error) ?? 'upstream'`로 kind를 정하고 `ExternalServiceError`로 감싼다.
+
+**`classify` 호출을 `try/catch`로 감싼다.** 분류기 셋은 전부 `unknown`을 받아 프로퍼티를 읽는다. 비-`Error` 값(문자열·`null`·`undefined`)으로 reject되면 분류기 자신이 던질 수 있고, 그러면 **통로가 뚫린다** — `ExternalServiceError`가 아닌 무언가가 필터를 지나쳐 로그 없는 500이 된다. 외부 호출이 실패했다는 사실보다 분류에 실패했다는 사실이 사용자에게 먼저 도달하는 셈이다.
+
+분류기가 던지면:
+- kind는 `'upstream'`으로 떨어뜨리고 원래 실패는 정상적으로 `ExternalServiceError`가 된다 — 분류 실패가 원래 실패를 삼키면 안 된다
+- 분류기 예외는 **별도 로그로 남긴다.** 원래 실패 로그에 묻으면 분류기 버그가 영원히 드러나지 않는다
+
+같은 이유로 `classifyCommonFailure`도 감싼다. 이건 방어적 코드가 아니라 **`callExternal`이 "무슨 일이 있어도 `ExternalServiceError`만 던진다"는 계약을 지키기 위한 것**이다. 그 계약이 깨지면 전역 필터가 존재할 이유가 없다.
 5. 로그는 여기서만 남긴다. `service` · `operation` · `kind` · **마스킹한** 원인 메시지. 프롬프트 전문은 남기지 않는다(길이만).
 
 **원인 메시지는 마스킹 후에 남긴다.** "원인 메시지를 남긴다"와 "로그에 API 키가 없다"는 그냥은 양립하지 않는다 — SDK 오류 메시지에는 요청 URL이 통째로 들어가고, 그 쿼리스트링에 키가 실려 있다. 메시지를 통째로 버리면 무엇이 실패했는지가 사라지므로 **가리고 남긴다.**
@@ -364,6 +372,22 @@ function maskSecrets(text: string): string;
 **별도 파일로 빼지 않는 이유:** 이 함수의 유일한 호출자는 `callExternal`이고, 모든 외부 호출이 그 하나를 통과하므로 재사용 지점이 생길 수 없다. 파일을 나누면 "마스킹하지 않고 로그하는 다른 경로"를 만들 수 있다는 신호가 되고, 그건 `circuit-breaker-entry-paths.md`가 경고하는 두 번째 진입 경로다.
 
 **마스킹은 로그에만 적용된다.** HTTP 응답 본문에는 원인 메시지가 아예 담기지 않는다(아래 필터 참조) — 마스킹은 로그를 위한 방어이지 응답을 위한 방어가 아니다. 두 방어는 독립적이다.
+
+#### 원인 메시지는 `cause` 체인을 펼쳐서 고른다
+
+```ts
+/** cause 체인을 따라가며 비어 있지 않은 첫 메시지를 고른 뒤 마스킹한다. */
+function causeMessage(error: unknown): string;
+```
+
+바깥 오류의 `message`만 읽으면 **`fetch failed` 다섯 글자만 로그에 남는다.** Node의 `fetch`(undici)는 전송 실패를 그 문구로 감싸고, 실제 원인(`ECONNREFUSED 127.0.0.1:8080`)은 `cause`에 들어 있다. 호스트와 포트가 사라지면 "TEI가 안 뜬 것"과 "주소를 잘못 적은 것"을 구분할 수 없다.
+
+- `error.cause`를 따라 내려가며 **비어 있지 않은 첫 `message`** 를 쓴다
+- 중간 고리가 `AggregateError`면 `.errors[0]`도 후보에 넣는다 — 듀얼스택 `localhost`(IPv6·IPv4 동시 시도)는 한 겹 벗겨도 `message`가 빈 문자열인 `AggregateError`가 나온다
+- 순환 참조와 무한 깊이를 막기 위해 깊이 상한을 둔다
+- 고른 메시지에 `maskSecrets`를 적용한다
+
+**TEI에 직결된다.** 셋 중 유일하게 생 `fetch`를 쓰므로 SDK가 원인을 정리해 주지 않는다. 실측의 "TEI 도달 불가 → `unavailable`, 5초 이내" 항목은 이 전개가 없으면 무엇이 잘못됐는지 알려주지 못한다.
 
 ### `src/clients/external-service.filter.ts` (신규)
 
@@ -442,6 +466,7 @@ export class TeiClient {
 
 - `normalize`·`truncate`·`prompt_name`을 **인자로 받지 않는다.** 색인이 만들어진 설정과 다르게 질의할 수 있는 경로를 만들지 않기 위해서다. `prompt_name`은 애초에 쓰지 않는다 — bge-m3는 지시문 프리픽스 없이 동작한다(`2026-07-26-...:315`).
 - 빈 문자열·공백만 있는 입력은 TEI를 호출하지 않고 `invalid-request`로 즉시 거부한다. core는 빈 **배열**을 빈 배열로 돌려주지만(`core/src/clients/tei.ts:20`), backend의 입력은 배열이 아니라 질의 한 건이고 빈 질의로 검색하는 것은 호출자의 버그다.
+- **`response.ok`를 본문 파싱보다 먼저 확인하고, 아니면 `TeiHttpError`를 던진다.** `fetch`는 4xx·5xx를 정상 반환으로 취급하므로 이 확인이 없으면 에러 JSON이 벡터로 파싱된다. 던지는 것이 분류기가 볼 수 있는 유일한 모양이다 — 아래 `tei.errors.ts` 절 참조.
 - 응답 `number[][]`에서 첫 벡터를 꺼내 반환한다. 배열이 비었거나 첫 원소가 빈 배열이면 `empty-response`.
 - **차원을 검사하지 않는다.** 아래 참조.
 - 타임아웃은 `fetch(url, { signal: AbortSignal.timeout(TEI_TIMEOUT_MS) })`, 기본 5000. 자체 호스팅 서버의 단문 임베딩 한 건이고, TEI는 모델 로딩 중에는 5xx를 내므로 5초를 넘길 정상 경로가 없다.
@@ -452,18 +477,67 @@ core가 차원을 검사하는 것(`core/src/services/enricher.ts:251-255`)은 c
 
 ### `src/clients/tei/tei.errors.ts` (신규, 순수 함수)
 
+#### 초안의 결함 — `Response`를 받는 시그니처는 `callExternal`에 넘길 수 없다
+
+초안은 `classifyTeiFailure(response: Response)`로 적었다. `callExternal`이 받는 `FailureClassifier`는 `(error: unknown) => ExternalFailureKind | null`이므로 **타입이 맞지 않아 그대로 넘길 수 없다.**
+
+근본 원인은 TEI만 실패 형태가 둘이라는 것이다. SDK를 쓰는 두 클라이언트는 실패가 언제나 "던져진 오류" 하나지만, 생 `fetch`는 두 갈래로 실패한다:
+
+- **던지는 실패** — 연결 거부·DNS·중단. `unknown` 오류로 도착한다
+- **던지지 않는 실패** — 4xx·5xx **응답**. `fetch`는 이걸 정상 반환으로 취급한다
+
+초안의 시그니처는 두 갈래 중 **후자만** 볼 수 있는 모양이었다. 전자를 받을 방법이 없다.
+
+| | (a) 클라이언트가 `!response.ok`에서 throw | (b) `callExternal`의 계약을 넓힌다 |
+|---|---|---|
+| 분류기 시그니처 | 다른 둘과 **동일** | TEI만 다름 (유니온 인자 또는 오버로드) |
+| 공통 파일 변경 | **없음** | `call-external.ts` 본문 수정 |
+| 구조 검증 기준 | **통과** | **그 자리에서 깨진다** ("공통 파일 변경은 유니온 한 줄뿐") |
+| 네 번째 클라이언트 | 영향 없음 | 계약이 이미 한 번 넓어진 상태에서 시작 |
+| TEI 클라이언트 코드 | `!ok`일 때 throw 한 줄 추가 | 변화 없음 |
+| 실패 표현 | 전송 계층과 무관하게 "던져진 오류" 하나 | 서비스마다 다름 |
+
+**(a)를 택한다.** (b)는 서비스 하나의 전송 계층 사정 때문에 셋 모두가 통과하는 공통 통로의 계약을 바꾸는 것이고, 그 순간 "공통화한 것은 클라이언트가 늘어도 자라지 않는다"는 이 설계의 근거가 반증된다. 반대로 (a)는 **`fetch`의 특이성을 클라이언트 안에 가둔다** — 밖에서 보면 TEI도 다른 둘과 똑같이 "던지는" 클라이언트다.
+
+부수 효과로 `response.ok` 확인이 **설계상 필수**가 된다. 초안은 그걸 "빠뜨리기 쉬운 실수"로 경고만 했는데, 이제 그 확인을 빼면 분류기에 도달할 오류 자체가 만들어지지 않아 실패가 조용히 성공으로 흐른다. 경고를 구조로 바꾼 것이 이 선택의 실질적 이득이다.
+
+#### 확정 인터페이스
+
 ```ts
-export function classifyTeiFailure(response: Response): ExternalFailureKind | null;
+/** !response.ok일 때 TeiClient가 던진다. 상태와 본문 일부를 분류기에 전달하는 운반체다. */
+export class TeiHttpError extends Error {
+  readonly status: number;
+  readonly bodySnippet: string;
+}
+
+export function classifyTeiFailure(error: unknown): ExternalFailureKind | null;
 ```
 
-TEI는 SDK가 없어 `fetch`의 `Response`를 직접 본다. `fetch`는 4xx·5xx에 throw하지 않으므로 **`response.ok` 확인을 빠뜨리면 에러 본문이 벡터로 파싱된다** — 이 클라이언트에서 가장 쉬운 실수다.
-
-- 400 · 413 · 422 → `invalid-request` (입력이 모델 제약을 벗어남. `truncate: true`라 흔치 않다)
-- 5xx → `upstream` (모델 로딩 중·OOM)
-- 그 외 비-2xx → `upstream`
-- 연결 거부·타임아웃은 `fetch`가 throw하므로 `classifyCommonFailure`가 처리한다 — TEI용 코드가 필요 없다
+- `TeiHttpError`이고 `status`가 400 · 413 · 422 → `invalid-request` (입력이 모델 제약을 벗어남. `truncate: true`라 흔치 않다)
+- `TeiHttpError`이고 `status`가 5xx → `upstream` (모델 로딩 중·OOM)
+- `TeiHttpError`이고 그 외 비-2xx → `upstream`
+- **그 외 전부 → `null`** — 연결 거부·중단은 `fetch`가 던지고 `classifyCommonFailure`가 처리한다. TEI용 코드가 필요 없다
 
 `auth`·`quota`·`not-found`는 TEI에 없다.
+
+`TeiHttpError`를 `tei.errors.ts`에 두는 이유: 던지는 쪽(`tei.client.ts`)과 판정하는 쪽이 같은 타입을 봐야 하고, 판정 규칙 옆에 두어야 상태 코드 목록과 타입이 함께 바뀐다. `bodySnippet`은 로그용이며 **분류에는 쓰지 않는다** — TEI의 상태 코드만으로 판정이 결정된다.
+
+#### 세 갈래 실패가 `callExternal`에 도달하는 경로
+
+```
+TeiClient.embedQuery(text)
+ │
+ ├ 빈/공백 질의  → ExternalServiceError('tei','invalid-request')  ★callExternal 밖에서 throw
+ │                  (네트워크를 타지 않으므로 통로에 들어갈 이유가 없다)
+ │
+ └ callExternal('tei', 'embed', classifyTeiFailure, async () => {
+     fetch(...)  ─ 던짐  → unknown → classifyTeiFailure → null → classifyCommonFailure → timeout | unavailable
+     !response.ok        → throw TeiHttpError(status, snippet) → classifyTeiFailure → invalid-request | upstream
+     벡터가 비었음        → throw ExternalServiceError('tei','empty-response')  → 규칙 3으로 그대로 통과
+   })
+```
+
+`empty-response`를 분류기가 아니라 클라이언트가 직접 던지는 것은 규칙 3(이미 `ExternalServiceError`면 그대로 재던짐)이 있기 때문이다. 이미 kind를 정확히 아는 자리에서 판정을 우회하는 것이 규칙 3의 존재 이유다.
 
 ### `src/clients/qdrant/qdrant.client.ts` (신규)
 
@@ -516,20 +590,59 @@ SDK는 `query()`를 쓴다. core는 `search()`를 쓰지만(`core/src/clients/qd
 export function classifyQdrantFailure(error: unknown): ExternalFailureKind | null;
 ```
 
-- `QdrantClientTimeoutError`(이름으로 판정) → `timeout`
-- `status === 404` 또는 메시지가 `/not found|doesn't exist|does not exist/i` → `not-found`
-- 401 · 403 → `auth`
-- 400 → 응답 본문에 `/dimension|expected dim/i`가 있으면 `dimension-mismatch`, 없으면 `invalid-request`
-- 5xx → `upstream`
-- 그 외 → `null`
+#### SDK가 실제로 던지는 것 (`node_modules` 확인 결과)
 
-404 판정은 core의 `isCollectionNotFound`(`core/src/clients/qdrant.ts:8-14`)와 같은 규칙이다. core가 그 함수에 붙인 이유도 그대로 유효하다 — "SDK 버전에 따라 status를 노출하지 않는 경우가 있어 메시지도 함께 본다."
+초안은 "SDK 오류는 `status`·`statusText`·`data`를 갖고 `message`에는 `statusText`만 들어간다"고 적었다. **절반만 맞다.** Qdrant SDK는 오류 shape이 **둘**이고, 그중 주 경로가 정반대다.
 
-**타임아웃을 여기서 잡아야 하는 이유.** `classifyCommonFailure`가 `AbortError`를 이름으로 잡지만, Qdrant SDK는 `fetch`의 `AbortError`를 **자기 타입(`QdrantClientTimeoutError`)으로 바꿔 다시 던진다.** 그래서 공통 판정에 걸리지 않는다. 여기서 잡지 않으면 에러 처리 표의 "Qdrant 5초 초과 → 504"가 성립하지 않고 조용히 502가 된다 — 표는 그대로인데 동작만 어긋나는 종류의 결함이라 테스트로 못 박아 둔다.
+`@qdrant/js-client-rest@1.18`의 미들웨어(`dist/cjs/api-client.js:44-62`)를 읽으면:
 
-**400의 이유는 메시지가 아니라 본문에 있다.** SDK의 오류 객체는 `status`·`statusText`·`data`를 갖고, `message`에는 `statusText`("Bad Request")만 들어간다. 차원 불일치 문구는 `data`에만 있으므로 정규식을 `message`에 걸면 **모든 400이 `invalid-request`로 떨어진다.** 구현 시 실제 오류 shape을 확인한다.
+| 던져지는 것 | 언제 | `status` 프로퍼티 | 상태·본문이 있는 곳 |
+|---|---|---|---|
+| **`QdrantClientUnexpectedResponseError`** | 비-2xx 응답이 정상 반환됐을 때 (**주 경로**) | **없다** | `message` 하나에 전부 |
+| `ApiError` (`@qdrant/openapi-typescript-fetch`) | 내부 fetcher가 던졌을 때 | 있다 | `data`, `message`는 `statusText`뿐 |
+| `QdrantClientTimeoutError` | 생성자 `timeout` 초과 | 없다 | 이름으로만 판정 |
+| `QdrantClientResourceExhaustedError` | 429 **+ `retry-after` 헤더 있음** | 없다 (`retry_after` 있음) | — |
 
-**Qdrant 429는 판정하지 않는다.** 에러 처리 표에 Qdrant 429 행이 없다 — 자체 호스팅 Qdrant에 호출량 쿼터라는 개념이 없기 때문이다. `null`을 반환해 `upstream`(502)으로 떨어뜨린다. Gemini의 `quota`(503 + `Retry-After`)와 다르게 다루는 것은 의도다: **같은 429라도 책임 귀속이 다르면 같은 kind가 아니다.** 관리형 Qdrant Cloud로 옮겨 실제로 429가 관측되면 그때 행과 판정을 함께 추가한다.
+`QdrantClientUnexpectedResponseError.forResponse`가 만드는 메시지는 이 모양이다(`dist/cjs/errors.js:13-24`):
+
+```
+Unexpected Response: 400 (Bad Request)
+Raw response content:
+{ "status": { "error": "Vector dimension error: expected dim: 1024, got 3" } }
+```
+
+즉 **상태 코드도 본문도 `message` 문자열 안에만 있고**, `status` 프로퍼티는 존재하지 않는다. 본문은 200자에서 잘린다(`MAX_CONTENT = 200`).
+
+**초안의 두 진술이 모두 위험했다.** "`status === 404`로 판정"은 주 경로에서 항상 거짓이 되고, "차원 문구는 `data`에만 있다"도 주 경로에서 거짓이다. 초안대로 구현하면 **모든 Qdrant 실패가 `upstream`(502)으로 떨어진다** — `not-found`도 `dimension-mismatch`도 영원히 나오지 않고, 에러 처리 표 4행이 죽은 글자가 된다.
+
+core가 `isCollectionNotFound`에 남긴 주석(`core/src/clients/qdrant.ts:8-14`)이 이걸 이미 경험한 흔적이다 — "SDK 버전에 따라 status를 노출하지 않는 경우가 있어 메시지도 함께 본다." 그때는 이유를 몰랐던 것이고, 이유는 shape이 둘이라는 것이다.
+
+#### 확정 판정 규칙
+
+두 shape을 모두 다루기 위해 **상태 코드와 검색 대상 문자열을 각각 두 곳에서 모은다.**
+
+```ts
+export function classifyQdrantFailure(error: unknown): ExternalFailureKind | null;
+```
+
+1. **타임아웃** — 생성자 이름이 `QdrantClientTimeoutError` → `timeout`
+2. **상태 코드 추출** — `error.status`가 숫자면 그것, 없으면 `message`의 `/Unexpected Response:\s*(\d{3})/`에서 파싱
+3. **검색 대상 문자열** — `message` + (`data`가 있으면 `JSON.stringify(data)`)를 **이어붙인 것**. 어느 shape이 오든 본문이 포함된다
+4. 상태 404 또는 검색 문자열이 `/not found|doesn't exist|does not exist/i` → `not-found`
+5. 상태 401 · 403 → `auth`
+6. 상태 400 → 검색 문자열이 `/dimension|expected dim/i`면 `dimension-mismatch`, 아니면 `invalid-request`
+7. 상태 5xx → `upstream`
+8. 그 외 → `null`
+
+2번과 3번이 이 함수의 전부다. 나머지는 그 위의 단순한 분기이며, **테스트는 두 shape을 각각 넣어 같은 kind가 나오는지 확인한다** — 한 shape만 테스트하면 다른 쪽에서 통째로 오분류된다.
+
+**타임아웃을 여기서 잡아야 하는 이유.** `classifyCommonFailure`가 `AbortError`를 이름으로 잡지만, Qdrant SDK는 `fetch`의 `AbortError`를 **자기 타입으로 바꿔 다시 던진다**(`api-client.js:31-35`). 그래서 공통 판정에 걸리지 않는다. 여기서 잡지 않으면 에러 처리 표의 "Qdrant 5초 초과 → 504"가 성립하지 않고 조용히 502가 된다 — 표는 그대로인데 동작만 어긋나는 종류의 결함이라 테스트로 못 박아 둔다.
+
+**Qdrant 429는 판정하지 않는다 (결정 유지, 근거 정정).** 초안은 "자체 호스팅 Qdrant에 호출량 쿼터라는 개념이 없기 때문"이라고 적었는데 **이건 사실이 아니다.** SDK에는 `QdrantClientResourceExhaustedError`가 있고 `retry_after` 필드까지 갖는다(`errors.js:33-43`) — Qdrant 서버가 429 + `Retry-After`를 보낼 수 있다는 뜻이다.
+
+그럼에도 이번 범위에서는 `null`을 반환해 `upstream`(502)으로 둔다. 이유는 "개념이 없어서"가 아니라 **`quota`로 올리면 `Retry-After` 값의 출처가 갈리기 때문**이다 — 필터는 지금 고정 60초를 쓰는데, SDK가 실제 값을 손에 쥐여주는 상황에서 그 값을 버리고 60을 보내는 것은 명백히 나쁘고, 값을 살리려면 `ExternalServiceError`가 `retryAfter`를 실어 나르도록 공통 타입을 바꿔야 한다. 그건 구조 검증 기준이 금지한 공통 파일 변경이다.
+
+**이 결정은 미해결 질문으로 올린다**(아래 "추가 미해결 질문"). 관리형 Qdrant Cloud로 옮기거나 쓰기 부하가 생기면 실제로 관측될 수 있고, 그때는 `retryAfter` 전달까지 함께 설계해야 한다. 지금 상태에서 502는 "기다리면 풀린다"는 정보를 잃지만, 잘못된 60초를 단언하지는 않는다.
 
 ### `src/clients/qdrant/tour-content-payload.ts` (신규, 순수 함수)
 
@@ -622,7 +735,7 @@ export class ClientsModule {}
 
 **`failure-attribution.md`** — "이 실패의 책임이 데이터에 있는가, 호출자 사정에 있는가, 우리 저장소에 있는가." 세 종류가 위 표에 모두 나타난다: 우리 설정(`auth`·`not-found`·`dimension-mismatch` → 500), 외부 사정(`quota`·`unavailable`·`timeout`·`upstream` → 502/503/504), 데이터(hit 0건 → 200). `ExternalFailureKind`를 이 세 묶음으로 나눠 정의한 것이 이 학습을 타입에 새긴 결과다. 특히 **`auth`를 503이 아니라 500으로 보낸 것**이 핵심이다 — 만료된 키는 기다린다고 낫지 않는다. 503은 "나중에 다시"라는 거짓말이 된다.
 
-같은 원리가 **Gemini 429는 `quota`, Qdrant 429는 `upstream`** 이라는 비대칭을 만든다. HTTP 상태코드가 같아도 책임 귀속이 다르면 같은 kind가 아니다 — Gemini의 429는 실제로 기다리면 풀리는 쿼터지만, 자체 호스팅 Qdrant의 429는 쿼터가 아니라 정체불명의 과부하다. 상태코드를 보고 분류하면 이 구분이 사라진다.
+같은 원리가 **Gemini 429는 `quota`, Qdrant 429는 `upstream`** 이라는 비대칭을 만든다. 다만 이 비대칭의 근거는 "책임 귀속이 달라서"가 아니라 **`Retry-After` 값의 출처가 달라서**다 — Qdrant SDK도 429를 쿼터로 모델링하고 있고(`QdrantClientResourceExhaustedError.retry_after`), 그 값을 살리려면 공통 타입을 바꿔야 한다. 자세한 재평가는 `classifyQdrantFailure` 절과 미해결 질문 5에 있다. **상태코드가 같다는 이유로 같은 kind를 주지 않는다는 원칙 자체는 유지되지만, 이 사례는 그 원칙의 좋은 예가 아니다.**
 
 **`circuit-breaker-entry-paths.md`** — "같은 로직에 진입 경로를 둘 이상 만들 때는 두 경로가 같은 함수를 재사용하게 만든다." backend는 앞으로 진입 경로가 늘어난다(chat, 검색 엔드포인트, 헬스체크). 그래서 **모든 SDK 호출이 `callExternal` 하나를 통과한다는 규칙을 지금 세운다.** 지금은 차단기가 없지만, 넣게 되면 넣을 자리는 이미 한 곳으로 정해져 있다. 클라이언트 메서드가 SDK를 직접 호출하면 리뷰에서 확정 지적이다.
 
@@ -733,6 +846,13 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - **로그에 API 키 문자열이 포함되지 않음** — `AIza` + 35자 형태의 가짜 키를 담은 오류를 주입해 확인
 - 마스킹 패턴 3종 각각 1건: `AIza…` / `?key=`·`?api_key=`·`?access_token=` / `Bearer …`
 - **마스킹이 메시지를 통째로 버리지 않음** ↔ 위 케이스와 짝. 키를 포함하지 않는 원인 메시지는 로그에 **그대로 남는다** (과잉 마스킹으로 진단 정보를 잃지 않는지)
+- `cause` 체인: `Error('fetch failed', { cause: Error('ECONNREFUSED 127.0.0.1:8080') })` → 로그에 **`ECONNREFUSED`가 남고 `fetch failed`만 남지 않음**
+- `cause`가 `AggregateError`이고 자신의 `message`가 빈 문자열 → `.errors[0].message`를 사용 (듀얼스택 `localhost` 재현)
+- `cause`가 없는 평범한 오류 → 바깥 메시지 그대로 (짝)
+- 순환 `cause`(`a.cause = b; b.cause = a`) → **무한 루프 없이 반환**
+- **`classify`가 던져도 통로가 뚫리지 않음** — 던지는 분류기를 주입해 `ExternalServiceError(kind='upstream')`가 나오는지, 원래 실패가 삼켜지지 않는지
+- 분류기 예외가 **원래 실패와 별도로 로그**됨
+- 비-`Error` 값(`'문자열'` · `null` · `undefined`)으로 reject → 모두 `ExternalServiceError`로 감싸짐 (계약 "무슨 일이 있어도 `ExternalServiceError`만 던진다")
 
 **`gemini.errors`** — 표의 각 행마다 판정 1건 + **모르는 오류에 `null`을 반환하는 케이스**(공통 판정으로 넘기는 경로가 살아 있는지)
 
@@ -747,8 +867,9 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - 생성자가 네트워크를 호출하지 않음 (SDK 인스턴스 생성만)
 
 **`tei.errors`** (순수 함수)
-- 400 · 413 · 422 → `invalid-request` / 500 · 503 → `upstream` / 그 외 비-2xx → `upstream`
-- **2xx에는 `null`** (성공을 실패로 분류하지 않는지 — 반대 방향 케이스)
+- `TeiHttpError(400)` · `(413)` · `(422)` → `invalid-request` / `(500)` · `(503)` → `upstream` / 그 외 비-2xx → `upstream`
+- **`TeiHttpError`가 아닌 오류 → `null`** (`fetch`가 던진 것을 가로채지 않고 공통 판정에 넘기는지 — 반대 방향 케이스)
+- 비-`Error` 값 → `null` (**던지지 않는다**)
 
 **`tei.client`** (전역 `fetch` 스텁)
 - `POST {TEI_BASE_URL}/embed`로 나가고, 바디가 **`{ inputs: [text], normalize: true, truncate: true }`** 와 정확히 일치 (core의 요청 형태와 같은지 — 문자열 수준 단정)
@@ -756,20 +877,28 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 - 응답 `[[0.1, 0.2, ...]]` → 첫 벡터를 `number[]`로 반환
 - 빈 문자열 / 공백만 있는 입력 → **`fetch` 호출 0회**, `invalid-request` throw ↔ 정상 문자열 → `fetch` 1회 (짝)
 - 응답 `[]` → `empty-response` / 응답 `[[]]` → `empty-response`
-- `response.ok === false`(400·500) → 각각 `invalid-request`·`upstream`, **본문을 파싱하지 않음**
+- `response.ok === false`(400·500) → **`TeiHttpError`를 던지고**, `callExternal`을 거쳐 각각 `invalid-request`·`upstream`이 됨. **본문을 벡터로 파싱하지 않음**
+- `!response.ok`인데 body가 유효한 `number[][]`처럼 생긴 경우에도 **throw** (상태 확인이 파싱보다 먼저인지 — 확인을 빼면 조용히 성공으로 흐르는 경로)
 - `fetch`가 `AbortError`로 reject → `timeout` (`classifyCommonFailure` 재사용 확인)
 - `fetch`가 `ECONNREFUSED`로 reject → `unavailable`
 - `signal`이 `fetch` 옵션에 전달됨 (타임아웃 누락 회귀 방지)
 - **반환 벡터의 길이를 검사하지 않음** — 3차원 응답도 그대로 반환한다(차원 판정은 Qdrant의 일). 이 케이스가 없으면 나중에 누가 "안전하게" 길이 검사를 넣으면서 `1024`를 하드코딩한다
 
 **`qdrant.errors`** (순수 함수)
-- 404 → `not-found` / status 없이 메시지만 `not found`여도 `not-found` (core의 두 경로 판정과 동일)
-- 401 · 403 → `auth`
-- 400 + 본문에 차원 문구 → `dimension-mismatch` ↔ **400 + 그 외 본문 → `invalid-request`** (짝)
-- 5xx → `upstream`
+
+**두 shape을 각각 넣어 같은 kind가 나오는지 확인한다.** 한 shape만 테스트하면 다른 쪽이 통째로 오분류돼도 초록불이 켜진다 — 이 함수에서 가장 큰 위험이다. 아래 판정 케이스는 각각 두 벌로 만든다:
+
+- fixture A: `QdrantClientUnexpectedResponseError` 형태 — `status` 프로퍼티 **없음**, `message`가 `` `Unexpected Response: 404 (Not Found)\nRaw response content:\n{...}` ``
+- fixture B: `ApiError` 형태 — `status` 숫자 있음, `message`는 `statusText`뿐, 본문은 `data`
+
+판정 케이스:
+- 404 → `not-found` (A·B 양쪽) / status를 못 읽고 메시지만 `not found`여도 `not-found`
+- 401 · 403 → `auth` (A·B)
+- 400 + 차원 문구 → `dimension-mismatch` ↔ **400 + 그 외 문구 → `invalid-request`** (A·B 각각 짝)
+- 5xx → `upstream` (A·B)
 - `QdrantClientTimeoutError` → `timeout` (**공통 판정에 맡기면 502가 되는 회귀를 못 박는다**)
-- **429 → `null`** (Gemini와 달리 `quota`로 판정하지 않음)
-- 모르는 오류 → `null`
+- **429 → `null`** (Gemini와 달리 `quota`로 판정하지 않음). `QdrantClientResourceExhaustedError`도 `null`
+- 모르는 오류 · 비-`Error` 값 → `null` (**던지지 않는다**)
 
 **`tour-content-payload`** (순수 함수)
 - 완전한 payload → 전 필드 매핑
@@ -921,8 +1050,19 @@ import는 전부 상대 경로다. `backend/tsconfig.json`에 `baseUrl`·`paths`
 
 **반영 결과:** 변경 없음. `QdrantSearchClient`의 읽기 전용 표면과 범위 밖의 쓰기 항목을 그대로 유지한다.
 
+### 추가 미해결 질문 (2026-07-27, 묶음 A 리뷰 중 발견)
+
+**5. Qdrant 429를 `quota`로 올릴 것인가?**
+초안의 "자체 호스팅 Qdrant에 쿼터 개념이 없다"는 근거가 **사실이 아님이 확인됐다** — SDK에 `QdrantClientResourceExhaustedError`가 있고 `retry_after`까지 갖는다(`errors.js:33-43`). 근거는 정정했고 결정은 유지했지만, 결정 자체는 다시 볼 값어치가 있다.
+- **A. 현행 유지 (`upstream` → 502)** → 공통 타입 무변경. "기다리면 풀린다"는 정보를 잃지만 틀린 `Retry-After`를 단언하지 않는다.
+- **B. `quota`로 올리고 고정 60초** → SDK가 쥐고 있는 실제 값을 버린다. 명백히 나쁘다.
+- **C. `quota`로 올리고 `ExternalServiceError`에 `retryAfter?: number` 추가** → 정확하지만 **공통 파일(`external-service.error.ts`)의 본문 변경**이라 구조 검증 기준("유니온 한 줄뿐")과 충돌한다. 기준을 다시 쓸지 함께 정해야 한다.
+- 현재 채택: **A.** 자체 호스팅 단일 인스턴스에서 429가 실제로 관측된 적이 없어 지금 C의 비용을 낼 근거가 없다. 관리형 Qdrant Cloud로 옮기거나 쓰기 부하가 생기면 **C로 가고 구조 검증 기준을 개정**한다.
+
+이 항목은 **동작 결함이 아니다** — 502든 503이든 요청은 실패하고 로그에 남는다. 정확도의 문제이므로 실제 관측 후에 정하는 것이 합리적이다.
+
 ### 남은 미해결 질문
 
-**없다.** 설계상 갈림길은 모두 닫혔다.
+위 5번 외에는 **없다.** 설계상 갈림길은 모두 닫혔다.
 
 다만 검증 계획의 실측에는 **환경 전제**가 하나 있다: 실행 환경에서 `TEI_BASE_URL`과 `QDRANT_URL`에 도달할 수 있어야 하고, TEI에는 색인을 만든 것과 **같은 모델(bge-m3)** 이 떠 있어야 한다. 도달할 수 없으면 단위 테스트까지만 완료하고 실측을 미완으로 보고한다 — 통과했다고 적지 않는다. 이건 설계 결정이 아니라 실행 시 확인할 사항이다.
