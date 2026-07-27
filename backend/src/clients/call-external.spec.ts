@@ -206,4 +206,69 @@ describe('callExternal', () => {
     const logged = firstLogMessage(errorLog);
     expect(logged).not.toContain('sk-live-abcdef123456');
   });
+
+  /**
+   * 쿼리 파라미터 마스킹 규칙.
+   * 값에 일부러 `AIza`를 넣지 않는다 — 넣으면 Gemini 키 규칙이 먼저 가려버려
+   * 이 규칙이 일할 기회가 없고, 규칙을 통째로 지워도 테스트가 통과한다.
+   * Google 형식이 아닌 자격증명(관리형 Qdrant Cloud의 api-key 등)이 실제로 새는 경로다.
+   */
+  const queryParamCases: Array<[string, string, string]> = [
+    ['api-key(하이픈)', '?api-key=secret-abc-123', 'secret-abc-123'],
+    ['access_token', '?access_token=ya29.SECRETVALUE', 'ya29.SECRETVALUE'],
+    [
+      'api_key(밑줄·후속 파라미터 있음)',
+      '?api_key=plain-secret-1&limit=10',
+      'plain-secret-1',
+    ],
+    ['KEY(대문자)', '?KEY=plainsecret123', 'plainsecret123'],
+    [
+      'key(& 로 이어진 두 번째 파라미터)',
+      '?limit=10&key=tail-secret-9',
+      'tail-secret-9',
+    ],
+  ];
+
+  it.each(queryParamCases)(
+    '%s 쿼리 파라미터 값을 가린다',
+    async (_이름, query, secret) => {
+      const leaky = new Error(
+        `요청 실패: https://qdrant.example.com/collections${query}`,
+      );
+      await callExternal('qdrant', 'query', alwaysNull, () =>
+        Promise.reject(leaky),
+      ).catch(() => undefined);
+
+      const logged = firstLogMessage(errorLog);
+      expect(logged).not.toContain(secret);
+      // 값만 가리고 파라미터 이름은 남긴다 — 무엇이 가려졌는지 알 수 없으면 진단이 안 된다.
+      expect(logged).toContain('=***');
+    },
+  );
+
+  it('후속 쿼리 파라미터까지 삼키지 않는다', async () => {
+    // `[^&\s]+`가 `&`를 넘어 탐욕적으로 먹으면 뒤따르는 진단 정보가 함께 사라진다.
+    const leaky = new Error(
+      '요청 실패: /collections?api_key=plain-secret-1&limit=10',
+    );
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      Promise.reject(leaky),
+    ).catch(() => undefined);
+
+    const logged = firstLogMessage(errorLog);
+    expect(logged).not.toContain('plain-secret-1');
+    expect(logged).toContain('limit=10');
+  });
+
+  it('자격증명이 없는 원인 메시지는 그대로 남는다', async () => {
+    // 반대 방향 짝. 과잉 마스킹(URL 통삭제·긴 토큰 통삭제)으로 진단 정보를 잃으면
+    // 로그가 남아 있어도 무엇이 실패했는지 알 수 없다.
+    const detail =
+      'http://qdrant.internal:6333/collections/tour_contents 조회 실패: connect ECONNREFUSED 10.0.0.5:6333';
+    await callExternal('qdrant', 'query', alwaysNull, () =>
+      Promise.reject(new Error(detail)),
+    ).catch(() => undefined);
+
+    expect(firstLogMessage(errorLog)).toContain(detail);
+  });
 });
