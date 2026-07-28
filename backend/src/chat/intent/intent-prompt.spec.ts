@@ -1,5 +1,10 @@
+import type { ChatIntent } from './chat-intent';
 import { CHAT_INTENTS, INTENT_DESCRIPTIONS } from './chat-intent';
-import { buildIntentPrompt, INTENT_SYSTEM_INSTRUCTION } from './intent-prompt';
+import {
+  buildIntentPrompt,
+  INTENT_SYSTEM_INSTRUCTION,
+  parseIntent,
+} from './intent-prompt';
 
 /**
  * 프롬프트와 파서는 하나의 계약의 양방향이다 — 프롬프트가 "소문자 snake_case
@@ -53,5 +58,46 @@ describe('buildIntentPrompt', () => {
     expect(prompt.indexOf('분류값 하나만 출력하라')).toBeLessThan(
       prompt.indexOf('안녕'),
     );
+  });
+});
+
+describe('parseIntent', () => {
+  it.each(CHAT_INTENTS)('%s 토큰을 그대로 판정한다', (intent: ChatIntent) => {
+    expect(parseIntent(intent)).toBe(intent);
+  });
+
+  const normalizationCases: Array<[string, string, ChatIntent]> = [
+    ['대소문자', ' PLAN_ITINERARY\n', 'plan_itinerary'],
+    ['따옴표', '"other"', 'other'],
+    ['백틱', '`recommend_places`', 'recommend_places'],
+    ['마침표', 'other.', 'other'],
+    ['코드펜스', '```\nplan_itinerary\n```', 'plan_itinerary'],
+  ];
+
+  it.each(normalizationCases)(
+    '%s는 정규화로 걷어낸다',
+    (_label, raw, expected) => {
+      expect(parseIntent(raw)).toBe(expected);
+    },
+  );
+
+  const nullCases: Array<[string, string]> = [
+    // ↔ 위 정규화 케이스의 짝. 관대해지면 이쪽이 통과해 버린다.
+    ['접두어가 붙은 응답', '분류: plan_itinerary'],
+    ['조사가 붙은 응답', 'plan_itinerary 입니다'],
+    // 신규 함정 2의 유일한 방어선. includes로 바꾸면 이 케이스만 깨진다 —
+    // 단순 오분류 케이스로는 절대 잡히지 않는다.
+    ['두 분류값이 함께 등장', 'plan_itinerary가 아니라 recommend_places입니다'],
+    ['빈 문자열', ''],
+    ['공백만', '   \n  '],
+    ['관계없는 문장', '무슨 말인지 잘 모르겠습니다'],
+    // 접두·부분 토큰이 통과하지 않는다.
+    ['부분 토큰 plan', 'plan'],
+    ['부분 토큰 recommend', 'recommend'],
+    ['부분 토큰 itinerary', 'itinerary'],
+  ];
+
+  it.each(nullCases)('%s는 null이다', (_label, raw) => {
+    expect(parseIntent(raw)).toBeNull();
   });
 });

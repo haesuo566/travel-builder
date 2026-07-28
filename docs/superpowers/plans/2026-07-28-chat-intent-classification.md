@@ -98,7 +98,7 @@ spec은 "남은 미해결 질문: **없다**"(`:690`)라고 선언했으나, 계
 - Consumes: 없음
 - Produces: `CHAT_INTENTS` (readonly 3-튜플) · `type ChatIntent` · `INTENT_DESCRIPTIONS: Record<ChatIntent, string>` · `INTENT_SYSTEM_INSTRUCTION: string` · `buildIntentPrompt(message: string): string`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/chat/intent/intent-prompt.spec.ts` 신규 생성 (전문):
 
@@ -162,7 +162,7 @@ describe('buildIntentPrompt', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/intent
@@ -170,7 +170,7 @@ npx jest src/chat/intent
 
 Expected: FAIL — `Cannot find module './chat-intent' from 'chat/intent/intent-prompt.spec.ts'` (미실측 — 모듈 부재)
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `backend/src/chat/intent/chat-intent.ts` 신규 생성 (전문). **★게이트 #5** — `INTENT_DESCRIPTIONS`의 리터럴은 spec `:237-241` 표에서 마크다운 강조를 걷어낸 것이며 spec이 못 박은 문자열이 아니다:
 
@@ -252,7 +252,7 @@ export function buildIntentPrompt(message: string): string {
 }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -262,7 +262,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS (기존 270건 + 신규 6건 = 276건)
 
-- [ ] **Step 5: 커밋** (저장소 루트에서)
+- [x] **Step 5: 커밋** (저장소 루트에서)
 
 ```bash
 git add backend/src/chat/intent/chat-intent.ts backend/src/chat/intent/intent-prompt.ts backend/src/chat/intent/intent-prompt.spec.ts
@@ -289,7 +289,7 @@ git commit -m "feat(backend): 분류 어휘와 시스템 지시문을 한 표에
 - Consumes: Task 1의 `CHAT_INTENTS` · `ChatIntent`
 - Produces: `normalizeIntentText(raw: string): string` · `parseIntent(raw: string): ChatIntent | null`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 먼저 `intent-prompt.spec.ts`의 **import 블록을 교체한다**(교체 후 전문):
 
@@ -348,7 +348,7 @@ describe('parseIntent', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/intent
@@ -356,7 +356,7 @@ npx jest src/chat/intent
 
 Expected: FAIL — `TypeError: (0 , intent_prompt_1.parseIntent) is not a function` (17건 실패, **실측**). ts-jest가 없는 export를 타입 오류로 끊지 않고 `undefined`로 넘긴다 — 그래서 실패가 컴파일이 아니라 런타임에서 난다.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `intent-prompt.ts`의 **첫 줄 위에 타입 import를 추가**한다:
 
@@ -407,7 +407,7 @@ export function parseIntent(raw: string): ChatIntent | null {
 
 > `find`를 쓰는 이유: `(CHAT_INTENTS as readonly string[]).includes(x) ? (x as ChatIntent) : null`은 캐스팅으로 타입을 우회해 오타를 통과시킨다. `find`는 반환 타입이 `ChatIntent | undefined`라 캐스팅이 필요 없다.
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -417,7 +417,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS (누적 293건 — `intent-prompt.spec.ts` 23건)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/intent/intent-prompt.ts backend/src/chat/intent/intent-prompt.spec.ts
