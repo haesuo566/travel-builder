@@ -913,7 +913,7 @@ other\"로 만드는 것이 자연스러워 보인다. 그러면 쿼터 소진�
 - Consumes: Task 4의 `IntentClassifier`, 기존 `ClientsModule`(무수정)
 - Produces: `ChatModule`이 `GeminiClient`·`IntentClassifier`를 해석할 수 있는 상태
 
-- [ ] **Step 1: 실패하는 테스트 작성 — 컨트롤러 spec 골격 교체**
+- [x] **Step 1: 실패하는 테스트 작성 — 컨트롤러 spec 골격 교체**
 
 `chat.controller.spec.ts` **교체 후 전문**(현재 파일과 대조한 뒤 덮는다. **기존 6건의 단정은 한 줄도 바꾸지 않는다** — 주석 1개와 전역 배선 블록만 다르다):
 
@@ -1117,7 +1117,7 @@ describe('ChatController', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/chat.controller
@@ -1125,7 +1125,7 @@ npx jest src/chat/chat.controller
 
 Expected: FAIL — **1건 실패(실측)**: `Nest could not find IntentClassifier element (this provider does not exist in the current context)`. **기존 6건은 통과한다.** (`overrideProvider(GeminiClient)`는 그래프에 `GeminiClient`가 없어도 던지지 않는다 — 실측 확인.)
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `chat.module.ts` **교체 후 전문**:
 
@@ -1159,7 +1159,7 @@ import { IntentClassifier } from './intent/intent.classifier';
 export class ChatModule {}
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -1171,7 +1171,7 @@ git diff --stat backend/src/clients backend/src/app.module.ts backend/src/main.t
 
 Expected: PASS (누적 304건). **`npm run test:e2e`가 통과해야 한다** — 이번부터 `AppModule` 부팅이 세 클라이언트 생성자를 실행한다(신규 함정 5). 마지막 `git diff --stat`은 **비어 있어야 한다**(구조 검증).
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/chat.module.ts backend/src/chat/chat.controller.spec.ts
@@ -1201,7 +1201,7 @@ ConfigModule.forRoot로 더미 키를 싣고 GeminiClient만 오버라이드한�
 - Consumes: Task 4의 `IntentClassifier.classify`
 - Produces: `ChatService.chat(request): Promise<ChatResponseDto>` · `PLAN_ITINERARY_PLACEHOLDER_REPLY` · `RECOMMEND_PLACES_PLACEHOLDER_REPLY` · `OTHER_REPLY` · `ChatController.chat(body): Promise<ChatResponseDto>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `backend/src/chat/chat.service.spec.ts` 신규 생성 (전문):
 
@@ -1378,7 +1378,7 @@ import type { ChatResponseDto } from './dto/chat-response.dto';
   });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/chat.controller src/chat/chat.service
@@ -1386,7 +1386,7 @@ npx jest src/chat/chat.controller src/chat/chat.service
 
 Expected: FAIL — **7건 실패(실측)**. 대표 메시지: `ChatService › plan_itinerary는 그 갈래의 문구를 돌려준다 — Expected: undefined / Received: "\"아무 말\" 라고 말씀하셨네요. 일정을 다듬는 기능은 아직 준비 중이에요."`. **`Expected: undefined`가 정상이다** — ts-jest가 없는 export를 `undefined`로 넘기기 때문이다. `%s는 itinerary를 입력 그대로 돌려준다` 3건은 기존 스텁도 입력 일정을 그대로 반환하므로 이 시점에 통과한다.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `chat.service.ts` **교체 후 전문**. **★게이트 #4** — 문구 3개의 리터럴은 spec이 못 박지 않았다. `OTHER_REPLY`는 프론트 mock의 폴백 문구(`frontend/src/lib/mock/scenarios.ts:39-43`)와 같은 값으로 두었다:
 
@@ -1483,7 +1483,7 @@ export class ChatService {
   }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -1494,7 +1494,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS (누적 314건 — `chat.service.spec.ts` 8건 + 컨트롤러 신규 2건)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/chat.service.ts backend/src/chat/chat.service.spec.ts backend/src/chat/chat.controller.ts backend/src/chat/chat.controller.spec.ts
@@ -1521,7 +1521,7 @@ TEI·Qdrant·Gemini를 쓰는 async 메서드가 되고 replyOther는 계속 문
 - Consumes: 기존 `configureApp`(무수정) · `ExternalServiceFilter`(무수정) · `ExternalServiceError`
 - Produces: 없음 (계약 고정)
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `chat.controller.spec.ts`의 import 블록에 `ExternalServiceError`를 추가한다(`GeminiGenerateOptions` import 위):
 
@@ -1576,7 +1576,7 @@ import { ExternalServiceError } from '../clients/external-service.error';
 
 > `upstream` 케이스는 **★게이트 #3**이다. spec `:542`가 "대표 2건(quota·upstream)"이라고 적었으나 테스트 열거(`:536`)에는 `quota`만 있다. `Retry-After` 부재를 함께 단정하는 것은 헤더가 kind와 무관하게 항상 붙는 회귀를 막기 위해서다.
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/chat.controller
@@ -1584,7 +1584,7 @@ npx jest src/chat/chat.controller
 
 Expected: FAIL — **2건 실패(실측)**: `expected 503 "Service Unavailable", got 500 "Internal Server Error"` / `expected 502 "Bad Gateway", got 500 "Internal Server Error"`
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `chat.controller.spec.ts`의 import에서 `ValidationPipe`를 빼고 `configureApp`을 넣는다:
 
@@ -1608,7 +1608,7 @@ import { ExternalServiceError } from '../clients/external-service.error';
     await app.init();
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -1619,7 +1619,7 @@ git diff --stat backend/src/app.setup.ts backend/src/clients
 
 Expected: PASS (누적 316건). 마지막 `git diff --stat`은 **비어 있어야 한다**.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/chat.controller.spec.ts
@@ -1647,7 +1647,7 @@ quota 503 + Retry-After와 upstream 502 두 건이 그 교체의 증거이고, k
 - Consumes: 없음 (`class-validator`의 `MaxLength`는 이미 설치돼 있다)
 - Produces: `ChatRequestDto.message`에 `@MaxLength(1000)`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `chat.controller.spec.ts`의 `it('gemini가 upstream으로 실패하면 502가 나간다', ...)` **바로 뒤(`describe` 블록 맨 끝)** 에 추가:
 
@@ -1676,7 +1676,7 @@ quota 503 + Retry-After와 upstream 502 두 건이 그 교체의 증거이고, k
   });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/chat.controller
@@ -1684,7 +1684,7 @@ npx jest src/chat/chat.controller
 
 Expected: FAIL — 1건 실패: `expected 400 "Bad Request", got 200 "OK"` (미실측 — 상한 부재로 1001자가 통과한다). `1000자면 200` 쪽은 이 시점에도 통과한다.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `chat-request.dto.ts` **교체 후 전문**:
 
@@ -1726,7 +1726,7 @@ export class ChatRequestDto {
 }
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -1738,7 +1738,7 @@ npm run build
 
 Expected: PASS — **318건 / 17 스위트** (실측 최종 상태), e2e 3건, 빌드 성공
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/dto/chat-request.dto.ts backend/src/chat/chat.controller.spec.ts
@@ -1838,11 +1838,11 @@ spec이 열거한 항목 수를 세어 태스크에 빠짐없이 배분했다. *
 
 ### 1. 명령
 
-- [ ] `npx tsc --noEmit -p tsconfig.json` 통과
-- [ ] `npm test` — **318건 / 17 스위트** 통과. 특히 **기존 `chat.controller.spec.ts` 6건과 `src/clients/**` spec 전부 그대로 통과**
-- [ ] `npm run test:e2e` — 3건 통과. `app.e2e-spec.ts`가 `AppModule` 부팅에 성공한다(신규 함정 5 — `test/setup-env.ts`의 더미 4키가 세 클라이언트 생성자를 통과시킨다)
-- [ ] `npx eslint src --max-warnings=0` 통과 (0 error 0 warning)
-- [ ] `npm run build` 성공
+- [x] `npx tsc --noEmit -p tsconfig.json` 통과
+- [x] `npm test` — **318건 / 17 스위트** 통과 (실측). 기존 `chat.controller.spec.ts` 6건과 `src/clients/**` spec 전부 그대로 통과
+- [x] `npm run test:e2e` — 3건 통과 (실측)
+- [x] `npx eslint src --max-warnings=0` 통과 (0 error 0 warning, 실측)
+- [x] `npm run build` 성공 (실측)
 
 ### 2. 구조 검증 — 선행 설계의 첫 소비자로서
 
@@ -1850,14 +1850,19 @@ spec이 열거한 항목 수를 세어 태스크에 빠짐없이 배분했다. *
 git diff --stat main -- backend/src/clients backend/src/app.module.ts backend/src/main.ts backend/src/app.setup.ts backend/test backend/package.json backend/src/chat/dto/chat-response.dto.ts frontend core
 ```
 
-- [ ] `backend/src/clients/**` 변경 **0건**
-- [ ] `ExternalFailureKind` **무변경** — 새 kind를 요구하지 않았다
-- [ ] `STATUS_BY_KIND` · `MESSAGE_BY_KIND` **무변경**
-- [ ] `GeminiGenerateOptions` **무변경** — 옵션 세 개로 충분했다
-- [ ] `app.module.ts` · `main.ts` · `app.setup.ts` **무변경** — 배선은 `ChatModule` 안에서 끝난다
-- [ ] `chat-response.dto.ts` **무변경** — 응답 shape 불변
-- [ ] `backend/test/**` · `frontend/**` · `core/**` **무변경**
-- [ ] `package.json` **무변경** — 의존성 추가 없음
+> **[실측 갱신]** 이 브랜치는 로컬 `main` 자체라 위 명령을 그대로 돌리면 자명하게 비어
+> 있다. 대신 이번 실행 범위의 base commit `e361128`(묶음 B 완료 시점) 기준으로 돌렸다:
+> `git diff --stat e361128 -- backend/src/clients backend/src/app.module.ts backend/src/main.ts backend/src/app.setup.ts backend/test backend/package.json backend/src/chat/dto/chat-response.dto.ts frontend core`
+> → 출력 없음(무변경 확인).
+
+- [x] `backend/src/clients/**` 변경 **0건**
+- [x] `ExternalFailureKind` **무변경** — 새 kind를 요구하지 않았다
+- [x] `STATUS_BY_KIND` · `MESSAGE_BY_KIND` **무변경**
+- [x] `GeminiGenerateOptions` **무변경** — 옵션 세 개로 충분했다
+- [x] `app.module.ts` · `main.ts` · `app.setup.ts` **무변경** — 배선은 `ChatModule` 안에서 끝난다
+- [x] `chat-response.dto.ts` **무변경** — 응답 shape 불변
+- [x] `backend/test/**` · `frontend/**` · `core/**` **무변경**
+- [x] `package.json` **무변경** — 의존성 추가 없음
 
 **하나라도 어긋나면 선행 설계의 공통화 경계가 틀렸다는 증거다.** 조용히 고치지 말고 무엇이 새어 나왔는지 보고에 올린다 — 두 번째 소비자에서 같은 비용을 또 낸다.
 
@@ -1867,12 +1872,12 @@ git diff --stat main -- backend/src/clients backend/src/app.module.ts backend/sr
 
 | 임시 변경 | spec 기대 | 실측 결과 |
 |---|---|---|
-| **폴백의 `Logger.warn` 호출을 지운다** | 최소 1건 실패 | **2건 실패** ("warn 1건" · "40자 상한") |
-| **`classify` 전체를 `try/catch`로 감싸 실패 시 `'other'` 반환** | 최소 1건 실패 | **3건 실패** (`quota` 전파 포함) |
-| `parseIntent`의 완전 일치를 `includes`로 바꾼다 | 최소 1건 실패 | **5건 실패** ("두 분류값 함께 등장" 포함) |
-| `switch`의 `plan_itinerary` / `recommend_places` arm 교환 | 최소 2건 실패 | **3건 실패** (서비스 spec 2 + 컨트롤러 spec 1) |
+| **폴백의 `Logger.warn` 호출을 지운다** | 최소 1건 실패 | **2건 실패** ("warn 1건" · "40자 상한") — 최종 검증 재실측도 **2건 실패**로 일치 |
+| **`classify` 전체를 `try/catch`로 감싸 실패 시 `'other'` 반환** | 최소 1건 실패 | **3건 실패** (`quota` 전파 포함) — 최종 검증 재실측도 **3건 실패**로 일치 |
+| `parseIntent`의 완전 일치를 `includes`로 바꾼다 | 최소 1건 실패 | **5건 실패** ("두 분류값 함께 등장" 포함) — 최종 검증 재실측도 **5건 실패**로 일치 |
+| `switch`의 `plan_itinerary` / `recommend_places` arm 교환 | 최소 2건 실패 | **3건 실패** (서비스 spec 2 + 컨트롤러 spec 1) — 최종 검증 재실측도 **3건 실패**로 일치 |
 
-- [ ] 4건 재확인, 뮤테이션 전부 되돌림 (`git status backend/`가 깨끗하다)
+- [x] 4건 재확인, 뮤테이션 전부 되돌림 (`git status backend/`가 깨끗하다 — 실측 확인)
 
 **앞의 두 항목이 이번 설계에서 가장 중요한 확인이다.** 폴백을 채택한 뒤 남은 위험은 (1) 로그가 사라지는 것과 (2) 폴백이 호출 실패까지 삼키는 것이며, 응답만 보는 테스트로는 둘 다 잡히지 않는다.
 
@@ -1884,6 +1889,10 @@ git diff --stat main -- backend/src/clients backend/src/app.module.ts backend/sr
 
 `npm run start:dev`로 서버를 띄우고 `POST /chat`을 4건 보낸다. `itinerary`는 `chat.controller.spec.ts`의 `createItinerary()` fixture를 쓴다.
 
+> **[실측 갱신] 미완.** 이 환경에는 `GEMINI_API_KEY`가 설정돼 있지 않다
+> (`printenv GEMINI_API_KEY` → 값 없음). 아래 4건은 실행하지 않았다 — 통과로
+> 기록하지 않는다. 단위 테스트(Gemini 모킹)는 전부 정상 통과했다.
+
 - [ ] **왕복이 성립한다** — "제주 2박3일 일정 짜줘" → **200**, `reply`가 비어 있지 않고, 서버 로그에 Gemini 호출 오류가 없다
 - [ ] **세 갈래가 실제로 갈린다** — 위 1건 + "부산 실내 관광지 추천해줘" + "안녕" → **`reply`가 서로 다른 값 3종**. 같으면 분기가 관통하지 않았거나 전부 폴백된 것이다. ★**이것이 유일한 실질 판정이다**
 - [ ] **폴백 로그 형식** — 폴백이 발생하면 `warn` 한 줄이 **길이와 40자 이내 조각**을 담고 있다. 발생하지 않으면 **"미관측"으로 기록한다 — 억지로 만들지 않는다**
@@ -1894,7 +1903,9 @@ git diff --stat main -- backend/src/clients backend/src/app.module.ts backend/sr
 
 ### 5. 보고에 반드시 포함할 것
 
-- [ ] 구조 검증 8항목의 결과 (하나라도 어긋나면 무엇이 새어 나왔는지)
-- [ ] 뮤테이션 4건의 실패 건수
-- [ ] **경로 스모크의 실행 여부와 `GEMINI_API_KEY` 유무.** 미실행이면 `미완`
-- [ ] ★게이트 7건 중 spec 확정을 받은 것과 받지 못한 것
+- [x] 구조 검증 8항목의 결과 — 8항목 전부 무변경 (base `e361128` 기준)
+- [x] 뮤테이션 4건의 실패 건수 — 2건 / 3건 / 5건 / 3건, 계획 표의 실측치와 전부 일치
+- [x] **경로 스모크의 실행 여부와 `GEMINI_API_KEY` 유무.** `GEMINI_API_KEY` 미설정 확인 →
+      **미완** (4건 미실행). 단위 테스트는 전부 통과
+- [x] ★게이트 7건 중 spec 확정을 받은 것과 받지 못한 것 — 묶음 C(Task 6~9) 범위 안에서는
+      추가로 미확정 게이트 없음. 이전 묶음(Task 1~5)에서 이미 처리된 사항
