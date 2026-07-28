@@ -16,3 +16,4 @@ process.env.DATABASE_URL ??= 'postgres://e2e:e2e@127.0.0.1:5432/e2e';
 process.env.GEMINI_API_KEY ??= 'e2e-dummy-gemini-key';
 process.env.TEI_BASE_URL ??= 'http://127.0.0.1:9';
 process.env.QDRANT_URL ??= 'http://127.0.0.1:9';
+process.env.CORS_ORIGIN ??= 'http://localhost:3000';

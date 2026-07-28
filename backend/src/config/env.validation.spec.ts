@@ -11,6 +11,7 @@ function completeEnv(): Record<string, unknown> {
     GEMINI_API_KEY: 'key',
     TEI_BASE_URL: 'http://tei:8080',
     QDRANT_URL: 'http://qdrant:6333',
+    CORS_ORIGIN: 'http://localhost:3000',
   };
 }
 
@@ -60,14 +61,21 @@ describe('validateEnv', () => {
     expect(() => validateEnv(envWithout('QDRANT_URL'))).toThrow('QDRANT_URL');
   });
 
+  it('CORS_ORIGIN 하나만 없어도 throw한다', () => {
+    // 이 키가 없으면 브라우저가 프론트엔드의 POST /chat을 CORS로 막는다.
+    // 기본값을 주지 않는 이유는 운영에서 localhost가 조용히 허용되는 편보다
+    // 부팅이 실패하는 편이 낫기 때문이다.
+    expect(() => validateEnv(envWithout('CORS_ORIGIN'))).toThrow('CORS_ORIGIN');
+  });
+
   it('빈 문자열도 누락으로 본다', () => {
     expect(() => validateEnv({ ...completeEnv(), QDRANT_URL: '' })).toThrow(
       'QDRANT_URL',
     );
   });
 
-  it('전부 없으면 네 키 이름이 한 메시지에 모두 등장한다', () => {
-    // 하나씩 알려주면 네 개가 비어 있을 때 네 번 재실행해야 한다.
+  it('전부 없으면 필수 키 이름이 한 메시지에 모두 등장한다', () => {
+    // 하나씩 알려주면 여러 개가 비어 있을 때 그 개수만큼 재실행해야 한다.
     let message = '';
     try {
       validateEnv({});
@@ -79,6 +87,7 @@ describe('validateEnv', () => {
     expect(message).toContain('GEMINI_API_KEY');
     expect(message).toContain('TEI_BASE_URL');
     expect(message).toContain('QDRANT_URL');
+    expect(message).toContain('CORS_ORIGIN');
     // 메시지 형식은 core의 requireEnv(core/src/lib/env.ts:5)와 같게 유지한다.
     expect(message).toContain('설정되지 않았습니다');
   });

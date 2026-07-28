@@ -7,6 +7,7 @@ const REQUIRED_KEYS = [
   'GEMINI_API_KEY',
   'TEI_BASE_URL',
   'QDRANT_URL',
+  'CORS_ORIGIN',
 ] as const;
 
 /**
@@ -22,8 +23,8 @@ const REQUIRED_KEYS = [
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  // 누락 키를 전부 모아 한 번에 보고한다. 하나씩 알려주면 네 개가 비어 있을 때
-  // 네 번 재실행해야 한다.
+  // 누락 키를 전부 모아 한 번에 보고한다. 하나씩 알려주면 여러 개가 비어 있을 때
+  // 그 개수만큼 재실행해야 한다.
   const missing = REQUIRED_KEYS.filter((key) => {
     const value = config[key];
     return typeof value !== 'string' || value === '';
