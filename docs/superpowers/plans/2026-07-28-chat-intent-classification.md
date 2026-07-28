@@ -630,7 +630,7 @@ undefined인 것을 보는 이유는 모델 선택을 GEMINI_MODEL 한 곳에 �
 - Consumes: Task 2의 `normalizeIntentText`, Task 3의 `IntentClassifier`
 - Produces: 시그니처 변경 없음. `classify`가 폴백 시 `Logger.warn` 1건을 남기는 계약을 추가한다
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `intent.classifier.spec.ts`의 `describe('IntentClassifier — 호출 계약', ...)` 블록 **바로 뒤(파일 맨 끝)** 에 추가:
 
@@ -683,7 +683,7 @@ describe('IntentClassifier — 폴백 관측', () => {
 
 > 40자 상한을 **로그 문자열 전체 길이**가 아니라 `'x'.repeat(40)` 포함 / `'x'.repeat(41)` 불포함으로 단정하는 이유: 전체 길이 상한은 접두 문구가 길어지면 같이 늘어나 조각 상한을 보장하지 못한다. 41자가 없다는 단정이 상한 자체를 고정한다.
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/intent/intent.classifier
@@ -691,7 +691,9 @@ npx jest src/chat/intent/intent.classifier
 
 Expected: FAIL — **2건 실패(실측)**. `해석 불가 응답을 …`은 `expect(jest.fn()).toHaveBeenCalledTimes(expected) / Expected number of calls: 1 / Received number of calls: 0`, `폴백 로그가 …`는 `TypeError: Cannot read properties of undefined (reading '0')`(warn이 0건이라 `firstWarnMessage`가 빈 `calls[0]`을 읽는다). **`명시적 other는 …`와 나머지 5건은 통과한다** — 그것이 이 짝의 설계다.
 
-- [ ] **Step 3: 구현**
+실측: 정확히 위 2건이 위 메시지 그대로 실패, 나머지 6건(호출 계약 3건 + 명시적 other) 통과 확인.
+
+- [x] **Step 3: 구현**
 
 `intent.classifier.ts` **교체 후 전문**(덮기 전에 현재 파일과 대조한다):
 
@@ -756,7 +758,7 @@ export class IntentClassifier {
 
 > `warn`이고 `error`가 아닌 이유: 요청은 성공했고 사용자에게 응답이 나갔다. `callExternal`이 `quota`를 `warn`으로, 실제 실패를 `error`로 나누는 기준(`call-external.ts:159-163`)과 같은 축이다 — **"응답이 나갔는가"** 가 레벨을 정한다.
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -766,7 +768,9 @@ npx eslint src --max-warnings=0
 
 Expected: PASS (누적 301건 — `intent.classifier.spec.ts` 8건)
 
-- [ ] **Step 5: 커밋**
+실측: `npm test` 301건 통과 / 16 스위트, 타입 검사·린트 모두 통과.
+
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/intent/intent.classifier.ts backend/src/chat/intent/intent.classifier.spec.ts
