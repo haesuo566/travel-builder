@@ -71,4 +71,56 @@ describe("sendMessage", () => {
 
     await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(Error);
   });
+
+  it("ValidationPipe 400의 message 배열은 사용자에게 보여주지 않고 입력 안내로 바꾼다", async () => {
+    stubFetch(
+      jsonResponse(400, {
+        statusCode: 400,
+        message: ["message must be shorter than or equal to 1000 characters"],
+        error: "Bad Request",
+      })
+    );
+
+    await expect(sendMessage("긴 메시지", getDefaultItinerary())).rejects.toThrow(
+      "입력을 확인해주세요. 메시지가 너무 길거나 형식이 올바르지 않습니다."
+    );
+  });
+
+  it("ExternalServiceFilter 5xx의 message 문자열은 그대로 사용자에게 전달한다", async () => {
+    stubFetch(
+      jsonResponse(503, {
+        statusCode: 503,
+        error: "quota",
+        message: "외부 서비스 사용량이 초과되었습니다. 잠시 후 다시 시도하세요.",
+      })
+    );
+
+    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+      "외부 서비스 사용량이 초과되었습니다. 잠시 후 다시 시도하세요."
+    );
+  });
+
+  it("에러 응답이 JSON이 아니면 폴백 문구로 던진다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response("<html>502 Bad Gateway</html>", { status: 502 })
+      )
+    );
+
+    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+      "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+    );
+  });
+
+  it("fetch 자체가 실패하면(CORS·네트워크 단절) 폴백 문구로 던진다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch"))
+    );
+
+    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+      "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+    );
+  });
 });
