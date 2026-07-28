@@ -66,6 +66,10 @@
 - **`npm run typecheck` 스크립트가 없다.** `npx tsc --noEmit -p tsconfig.json`을 쓴다.
 - `npm run lint`는 `--fix`가 붙어 있어 **파일을 수정한다.** 커밋 직전에 돌리고 결과를 확인한다.
 - prettier 설정(`.prettierrc`)이 eslint에 통합돼 있다. 포맷을 수동으로 맞추지 말고 `npm run lint`에 맡긴다.
+- **eslint가 `recommendedTypeChecked`다.** `no-unsafe-assignment`·`no-unsafe-member-access`가 **error**(`no-explicit-any`만 off). 리뷰 게이트는 `npx eslint src --max-warnings=0`으로 도니 **warn도 실패다.** 그래서 관용적으로 보이는 테스트 코드가 통과하지 못한다 — 이 워크스페이스에서 두 번 났다.
+  - 타입 있는 mock(`jest.fn<반환, [인자]>()`)에는 `toHaveBeenCalledWith(expect.objectContaining(...))` 대신 **`const [params] = fn.mock.calls[0];` + 필드별 단정**을 쓴다. 중첩 `objectContaining`은 `any`를 반환해 속성 대입에서 error가 된다. 검증도 이쪽이 강하다 — `.cofnig` 오타가 컴파일에서 잡힌다. **`as { … }` 캐스팅으로 우회하는 것은 반대 방향이다**(오타를 그대로 통과시킨다).
+  - `jest.SpyInstance`의 `mock.calls` 원소는 `any`로 추론된다. `as unknown as unknown[][]`을 한 번 거쳐 좁히는 지역 헬퍼를 파일마다 하나 둔다(`src/clients/call-external.spec.ts:17-29`).
+  - 구조분해로 키를 빼는 관용구(`const { key: _omit, ...rest } = obj`)는 `no-unused-vars`의 `ignoreRestSiblings` 기본값이 `false`라 **error**다(`_` 접두사도 안 봐준다). 헬퍼 함수로 뺀다.
 - 엔티티(`src/database/entities/`)는 **`core`가 만드는 DDL과 같은 테이블을 가리킨다.** 한쪽만 바꾸면 조용히 어긋난다 — 컬럼 추가 시 양쪽을 함께 본다.
 - 환경변수는 `src/config/env.validation.ts`를 거친다. 새 변수는 여기와 `.env.example`에 함께 추가한다.
 

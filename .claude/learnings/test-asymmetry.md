@@ -1,7 +1,7 @@
 ---
 type: pitfall
 first_seen: 2026-07-26
-occurrences: 2
+occurrences: 3
 promoted_to: .claude/skills/tb-code-review/references/known-pitfalls.md (E-1)
 ---
 
@@ -17,4 +17,4 @@ promoted_to: .claude/skills/tb-code-review/references/known-pitfalls.md (E-1)
 분기를 쓸 때마다 양쪽 방향 테스트를 짝으로 만든다. 리뷰에서는 spec 에러 처리 표의 **행 수와 테스트 수를 대조**한다. 의심되면 구현을 임시로 망가뜨려 돌려보고, 여전히 통과하면 확정 지적이다.
 
 **출처**
-`8f9dbd3` (테스트 비대칭 2건) · `4b5101a` (폴백 분기 회귀 테스트 추가)
+`8f9dbd3` (테스트 비대칭 2건) · `4b5101a` (폴백 분기 회귀 테스트 추가) · `6719d8b` (한 클라이언트에만 있던 "env 없으면 부팅 실패" 계약을 대칭으로 — 형제 클라이언트가 이미 고정한 계약은 **파일 간 대칭**도 본다)

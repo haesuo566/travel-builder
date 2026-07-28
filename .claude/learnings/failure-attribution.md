@@ -1,7 +1,7 @@
 ---
 type: pitfall
 first_seen: 2026-07-26
-occurrences: 3
+occurrences: 4
 promoted_to: .claude/skills/tb-code-review/references/known-pitfalls.md (A절)
 ---
 
@@ -16,7 +16,7 @@ promoted_to: .claude/skills/tb-code-review/references/known-pitfalls.md (A절)
 - DB 쓰기 실패를 외부 호출 실패로 분류하면 → 이미 태운 쿼터를 버리면서 남의 attempt를 올림
 
 **대응**
-분기 전에 묻는다: **이 실패의 책임이 데이터에 있는가, 호출자 사정에 있는가, 우리 저장소에 있는가.** 셋의 처리가 다르다. spec의 에러 처리 표에 세 종류가 모두 나타나지 않으면 아직 분류하지 않은 것이다.
+분기 전에 묻는다: **이 실패의 책임이 데이터에 있는가, 호출자 사정에 있는가, 우리 저장소에 있는가, 우리 설정에 있는가.** 넷의 처리가 다르다. spec의 에러 처리 표에 모두 나타나지 않으면 아직 분류하지 않은 것이다. **"이 서비스에는 그 종류가 없다"는 부재 선언이 가장 흔한 은신처다** — 부정한 항목 수만큼 근거가 있는지 센다(→ `misconfig-404-is-not-upstream.md`).
 
 **출처**
-`b9b0936` (enricher 리뷰 지적 4건 — 쿼터 오분류·소진 미대응) · `2026-07-26-collect-detail-inline-embedding-design.md` 함정 1/4/5
+`b9b0936` (enricher 리뷰 지적 4건 — 쿼터 오분류·소진 미대응) · `2026-07-26-collect-detail-inline-embedding-design.md` 함정 1/4/5 · `029d691`(TEI 404 오귀속, 2026-07-28)
