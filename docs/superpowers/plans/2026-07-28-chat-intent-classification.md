@@ -797,7 +797,7 @@ git commit -m "feat(backend): 해석 불가 응답을 other로 폴백하되 warn
 - Consumes: Task 4의 `IntentClassifier`, 기존 `ExternalServiceError`
 - Produces: 없음 (계약 고정)
 
-- [ ] **Step 1: 회귀 가드 테스트 작성**
+- [x] **Step 1: 회귀 가드 테스트 작성**
 
 `intent.classifier.spec.ts`의 import 블록에 한 줄을 추가한다(`GeminiGenerateOptions` import 위):
 
@@ -842,7 +842,9 @@ describe('IntentClassifier — 폴백의 경계선', () => {
 
 > `rejects.toBe(failure)`가 `rejects.toMatchObject({ kind: 'quota' })`보다 강하다 — 같은 인스턴스가 올라오는지 보므로 중간에서 다시 감싸는 구현도 잡는다.
 
-- [ ] **Step 2: 뮤테이션으로 실패를 확인** (RED 대체)
+- [x] **Step 2: 뮤테이션으로 실패를 확인** (RED 대체)
+
+> **[구현 이탈 — test(backend): Gemini 호출 실패가 other로 흡수되지 않는 계약을 고정한다]** 실측 결과는 **1건 실패**였다(계획은 3건 실패를 기대). 실패한 테스트는 계획이 지목한 바로 그 테스트(`gemini 호출 실패는 같은 인스턴스로 그대로 올라간다`)였다. `호출 실패에는 폴백 warn을 남기지 않는다`는 뮤테이션 상태에서도 통과했다 — catch가 예외를 삼키고 `logger.warn`을 호출하지 않으므로 "warn이 호출되지 않았다"는 단정 자체는 참이기 때문이다(뮤테이션이 그 케이스를 뒤집지 않는다). `src/chat` 아래에 이 시나리오로 실패할 다른 테스트가 없어(컨트롤러 spec은 아직 IntentClassifier를 쓰지 않는다, Task 6에서 배선) 3건이라는 계획의 수치 근거를 확인하지 못했다. 방어선의 존재 자체(목표 테스트가 뮤테이션에 반응한다)는 확인됐으므로 진행했다.
 
 `intent.classifier.ts`의 `classify` 본문을 **임시로** 다음처럼 바꾼다:
 
@@ -866,11 +868,11 @@ Expected: FAIL — **3건 실패(실측)**. `gemini 호출 실패는 같은 인�
 
 확인한 뒤 **뮤테이션을 되돌린다**(`git diff`로 `intent.classifier.ts`에 변경이 남지 않았는지 확인).
 
-- [ ] **Step 3: 구현 — 변경 없음**
+- [x] **Step 3: 구현 — 변경 없음**
 
 Task 3의 구현이 이미 이 계약을 만족한다. `try/catch`를 추가하지 않는 것이 구현이다.
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -881,7 +883,9 @@ git diff --stat backend/src/chat/intent/intent.classifier.ts
 
 Expected: PASS (누적 303건). `git diff --stat`은 **비어 있어야 한다** — 뮤테이션이 남아 있으면 이 커밋이 계약을 뒤집는다.
 
-- [ ] **Step 5: 커밋**
+실측: `npm test` 303건 통과 / 16 스위트, 타입 검사·린트 통과, `git diff --stat backend/src/chat/intent/intent.classifier.ts` 출력 없음(뮤테이션 완전히 되돌림) 확인.
+
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/intent/intent.classifier.spec.ts

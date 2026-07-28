@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
+import { ExternalServiceError } from '../../clients/external-service.error';
 import type { GeminiGenerateOptions } from '../../clients/gemini/gemini.client';
 import { GeminiClient } from '../../clients/gemini/gemini.client';
 import { CHAT_INTENTS } from './chat-intent';
@@ -129,5 +130,36 @@ describe('IntentClassifier — 폴백 관측', () => {
     expect(logged).toContain('길이=200');
     expect(logged).toContain('x'.repeat(40));
     expect(logged).not.toContain('x'.repeat(41));
+  });
+});
+
+describe('IntentClassifier — 폴백의 경계선', () => {
+  /**
+   * 해석 불가는 "모델이 뭐라 했는지 모른다"이고, 쿼터 소진은 "모델이 대답할 수
+   * 없었다"는 확정된 사실이다. 확정된 사실을 추측으로 덮지 않는다 —
+   * classify를 try/catch로 감싸면 쿼터 소진이 "여행과 무관한 메시지"가 되고
+   * Retry-After도 503도 사라진다.
+   */
+  function quotaFailure(): ExternalServiceError {
+    return new ExternalServiceError('gemini', 'quota', '쿼터 소진');
+  }
+
+  it('gemini 호출 실패는 같은 인스턴스로 그대로 올라간다', async () => {
+    const failure = quotaFailure();
+    generate.mockRejectedValue(failure);
+    const classifier = await createClassifier();
+
+    await expect(classifier.classify('안녕')).rejects.toBe(failure);
+  });
+
+  it('호출 실패에는 폴백 warn을 남기지 않는다', async () => {
+    // ↔ 짝. 실패 로그는 callExternal의 몫이다. 여기서 warn을 남기면
+    // 폴백 로그와 실패 로그가 섞여 "오분류 관측"이라는 신호가 오염된다.
+    generate.mockRejectedValue(quotaFailure());
+    const classifier = await createClassifier();
+
+    await classifier.classify('안녕').catch(() => undefined);
+
+    expect(warnLog).not.toHaveBeenCalled();
   });
 });
