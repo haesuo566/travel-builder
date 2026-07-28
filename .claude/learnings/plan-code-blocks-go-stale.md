@@ -1,7 +1,7 @@
 ---
 type: process
 first_seen: 2026-07-27
-occurrences: 6
+occurrences: 7
 promoted_to: .claude/skills/tb-plan-writing/SKILL.md ("코드 블록 작성 원칙") · .claude/skills/tb-tdd-implement/SKILL.md ("계획을 벗어날 때")
 ---
 
@@ -14,6 +14,7 @@ promoted_to: .claude/skills/tb-plan-writing/SKILL.md ("코드 블록 작성 원�
 셋 다 조용히 잘못된 코드를 만든다.
 - spec 정정 미반영: 계획 갱신본이 spec 갱신본보다 **먼저** 커밋되면 확장된 규칙이 블록에 안 들어간다. 그대로 구현하면 spec이 이미 뒤집은 결정이 코드가 된다(빈 문자열 필터가 "정상 200 + 결과 없음"으로, 앵커 없는 정규식이 본문 숫자를 상태로).
 - 전문 덮어쓰기: 앞 태스크가 실행 시점에 추가한 테스트 3건을 계획 블록이 모른다. 덮으면 **기존 커버리지가 회귀**하는데 테스트는 초록불이다.
+- **앞으로 새는 방향**(7회차, `0c6ccc4`): 여러 태스크가 같은 테스트 파일을 키워갈 때, 계획이 **최종 상태 블록을 중간 태스크에 배치**했다. Task 3 블록에 Task 4에서만 쓰이는 `Logger` import·스파이·헬퍼가 들어 있어 Task 3 커밋 시점에 어느 테스트도 그것을 참조하지 않았고, `no-unused-vars`가 `--max-warnings=0` 게이트를 막았다. 계획 작성 시 전 태스크 코드를 미리 만들어 검증했는데도 걸렸다 — **검증한 것은 최종 상태 하나뿐이고, 게이트는 태스크 경계마다 따로 돈다.**
 - spec → 계획으로 내려오다 빠진 fixture: 코드가 아니라 **테스트 쪽에 구멍이 남아** 회귀 가드가 무력해진다(리뷰가 Minor로 잡았다).
 
 **대응**

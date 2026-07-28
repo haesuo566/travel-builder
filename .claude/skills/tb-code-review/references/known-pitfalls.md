@@ -157,6 +157,7 @@ SQL 별칭 → row 인터페이스 필드 → 도메인 객체 프로퍼티. 세
 양쪽 다 `string`인데 한쪽은 코드(`"12"`), 다른 쪽은 이름(`"관광지"`). 컴파일은 통과하고 데이터가 틀린다.
 **점검:** 경계를 넘는 문자열 필드의 **값 예시**를 양쪽에서 확인한다.
 
-### F-5. env 변수 3중 등록 누락
+### F-5. env 변수 등록 누락 — 그리고 로컬 `.env`가 그것을 가린다
 
-새 환경변수는 세 곳에 함께 들어가야 한다: `.env.example` · 검증 모듈(`core/src/lib/env.ts` 또는 `backend/src/config/env.validation.ts`) · 사용처.
+새 환경변수는 함께 들어가야 한다: `.env.example` · 검증 모듈(`core/src/lib/env.ts` 또는 `backend/src/config/env.validation.ts`의 `REQUIRED_KEYS`) · 사용처 · **backend는 `test/setup-env.ts`까지 네 곳**.
+**점검:** `test/setup-env.ts` 누락은 **e2e가 통과해도 남아 있다** — 로컬 `backend/.env`(gitignore)에서 `ConfigModule`이 값을 찾아내므로 `.env`가 없는 환경에서만 부팅이 죽는다. 통과 로그는 증거가 아니다. `.env`를 임시로 옮기고 e2e를 한 번 돌려 **env 부재로 실패하는 것을 확인**했는지 본다.

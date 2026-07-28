@@ -95,6 +95,10 @@
 - **vitest가 `src/**/*.test.ts`만 수집한다** (`vitest.config.ts`). 확장자가 `.tsx`인 테스트는 **조용히 실행되지 않는다.** 컴포넌트 테스트를 추가하려면 `include`와 `environment`(현재 `node`)를 먼저 바꿔야 한다 — 계획에 그 태스크를 명시적으로 넣는다.
 - `npm run typecheck` 스크립트가 없다. `npx tsc --noEmit`을 쓴다.
 - 경로 별칭 `@/*` → `./src/*`.
+- **클라이언트에서 읽는 env는 `process.env.NEXT_PUBLIC_X`를 글자 그대로 쓴다.** Next.js는 빌드 시점에 이 표현을 문자열로 치환하므로 **구조분해(`const { NEXT_PUBLIC_X } = process.env`)·동적 접근(`process.env[key]`)은 치환되지 않아 브라우저에서 `undefined`가 된다**(`node_modules/next/dist/docs/01-app/02-guides/environment-variables.md:184-192`). `NEXT_PUBLIC_` 접두사가 없는 키는 클라이언트 번들에 아예 들어가지 않는다(`:156-166`). 서버에서는 둘 다 되므로 로컬에서 잡히지 않는다 — 문법 취향이 아니라 동작 조건이다.
+  - 값이 없을 때 **기본값(`?? "http://localhost:3001"`)을 두지 않는다.** 배포 빌드에서 브라우저가 사용자 PC를 향하고 설정 누락이 "연결 실패"로 위장된다. 던지되 **모듈 로드 시점이 아니라 사용 시점에** 던진다 — 로드 시점 throw는 `next build`의 프리렌더를 깨서 빌드가 env를 요구하게 된다.
+  - `frontend/.gitignore`는 `.env*`를 통째로 무시한다. 키를 문서화하려면 `!.env.example` 예외를 함께 넣어야 예시 파일이 커밋된다.
+  - 테스트는 `vi.stubEnv`/`vi.unstubAllEnvs`로 양방향을 고정한다. **vitest는 `.env.local`을 읽지 않으므로** 로컬 env 파일이 부재 테스트를 마스킹하지 않는다(backend e2e와 다르다).
 - 현재 데이터는 전부 `src/lib/mock/`이다. 실제 API 배선은 `src/lib/api/`가 담당한다 — **backend DTO와 shape을 맞추는 것이 이 워크스페이스의 최대 위험 지점**이다.
 
 ---
