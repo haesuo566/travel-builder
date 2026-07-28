@@ -13,9 +13,12 @@ export class ChatController {
 
   // @Post는 기본이 201 Created다. 새 리소스에 URI를 부여하는 게 아니라
   // 답변을 계산해 돌려주는 것이므로 200 OK로 맞춘다.
+  //
+  // 서비스가 Gemini 왕복을 하게 되면서 Promise가 됐다. await 없이 그대로
+  // 반환한다 — Nest가 라우트 핸들러의 Promise를 해소한다.
   @Post()
   @HttpCode(HttpStatus.OK)
-  chat(@Body() body: ChatRequestDto): ChatResponseDto {
+  chat(@Body() body: ChatRequestDto): Promise<ChatResponseDto> {
     return this.chatService.chat(body);
   }
 }

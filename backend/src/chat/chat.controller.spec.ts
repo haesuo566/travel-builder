@@ -7,6 +7,11 @@ import { App } from 'supertest/types';
 import type { GeminiGenerateOptions } from '../clients/gemini/gemini.client';
 import { GeminiClient } from '../clients/gemini/gemini.client';
 import { ChatModule } from './chat.module';
+import {
+  OTHER_REPLY,
+  PLAN_ITINERARY_PLACEHOLDER_REPLY,
+  RECOMMEND_PLACES_PLACEHOLDER_REPLY,
+} from './chat.service';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
 
@@ -188,5 +193,41 @@ describe('ChatController', () => {
     const body = response.body as ChatResponseDto;
     expect(body.itinerary).not.toHaveProperty('unexpected');
     expect(body.itinerary).toEqual(itinerary);
+  });
+
+  it('세 분류값이 각각 다른 reply로 200이 된다', async () => {
+    // 분기가 HTTP까지 관통하는지 본다. switch의 arm을 서로 바꾸면 여기가 깨진다.
+    const itinerary = createItinerary();
+    const replies: string[] = [];
+
+    for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
+      generate.mockResolvedValue(intent);
+
+      const response = await request(app.getHttpServer())
+        .post('/chat')
+        .send({ message: '아무 말', itinerary })
+        .expect(200);
+
+      replies.push((response.body as ChatResponseDto).reply);
+    }
+
+    expect(replies).toEqual([
+      PLAN_ITINERARY_PLACEHOLDER_REPLY,
+      RECOMMEND_PLACES_PLACEHOLDER_REPLY,
+      OTHER_REPLY,
+    ]);
+  });
+
+  it('해석할 수 없는 응답이면 200 + other 문구가 나간다', async () => {
+    // 폴백이 HTTP까지 관통한다. 진짜 other와 바이트 단위로 같은 응답이며
+    // 구별은 IntentClassifier의 warn 로그에만 존재한다.
+    generate.mockResolvedValue('분류: plan_itinerary 입니다');
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 2박3일 일정 짜줘', itinerary: createItinerary() })
+      .expect(200);
+
+    expect((response.body as ChatResponseDto).reply).toBe(OTHER_REPLY);
   });
 });
