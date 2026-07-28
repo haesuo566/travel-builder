@@ -444,7 +444,9 @@ git commit -m "feat(backend): parseIntent를 정규화 후 완전 일치로만 �
 - Consumes: Task 1~2의 `INTENT_SYSTEM_INSTRUCTION` · `buildIntentPrompt` · `parseIntent` · `ChatIntent`, 그리고 기존 `GeminiClient.generate(prompt, opts)` (무수정)
 - Produces: `IntentClassifier` (`@Injectable`) · `classify(message: string): Promise<ChatIntent>`
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
+
+> **[구현 이탈 — `0c6ccc4` feat(backend): IntentClassifier가 Gemini로 메시지를 3분류한다]** 아래 블록의 `Logger` import·`warnLog` 스파이·`firstWarnMessage` 헬퍼는 Task 4에서 처음 쓰인다. Task 3 시점에는 어느 테스트도 참조하지 않아 `no-unused-vars`가 `npx eslint src --max-warnings=0`을 막았다. Task 3 커밋에서는 이 셋을 빼고 `beforeEach`에 `generate.mockReset()`만 남겼다 — Task 4에서 실제로 쓰일 때 함께 추가했다. 최종 상태(Task 4 완료 후)는 계획과 동일하다.
 
 `backend/src/chat/intent/intent.classifier.spec.ts` 신규 생성 (전문 — Task 4·5에서 `describe` 블록을 뒤에 덧붙인다):
 
@@ -539,7 +541,7 @@ describe('IntentClassifier — 호출 계약', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npx jest src/chat/intent/intent.classifier
@@ -547,7 +549,9 @@ npx jest src/chat/intent/intent.classifier
 
 Expected: FAIL — `Cannot find module './intent.classifier' from 'chat/intent/intent.classifier.spec.ts'` (미실측 — 모듈 부재)
 
-- [ ] **Step 3: 구현**
+실측: 위와 동일하게 `Cannot find module './intent.classifier'`로 실패 확인.
+
+- [x] **Step 3: 구현**
 
 `backend/src/chat/intent/intent.classifier.ts` 신규 생성 (전문). **폴백 로그는 Task 4에서 붙인다 — 지금은 반환값 계약만 만족시키는 최소 구현이다:**
 
@@ -586,7 +590,7 @@ export class IntentClassifier {
 
 > 파일명이 `intent.classifier.ts`인 이유는 저장소의 역할 접미사 관례(`gemini.client.ts`/`GeminiClient`)를 따르기 위해서다.
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -596,7 +600,9 @@ npx eslint src --max-warnings=0
 
 Expected: PASS (누적 298건 — `intent.classifier.spec.ts` 5건)
 
-- [ ] **Step 5: 커밋**
+실측: `npm test` 298건 통과 / 16 스위트, `npx tsc --noEmit` 통과, `npx eslint src --max-warnings=0` 통과(0 error 0 warning) — Step 1의 이탈 반영 후.
+
+- [x] **Step 5: 커밋**
 
 ```bash
 git add backend/src/chat/intent/intent.classifier.ts backend/src/chat/intent/intent.classifier.spec.ts
