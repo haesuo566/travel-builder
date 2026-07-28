@@ -272,4 +272,27 @@ describe('ChatController', () => {
       message: '외부 서비스에서 오류가 발생했습니다.',
     });
   });
+
+  it('message가 1000자면 200이고 gemini를 호출한다', async () => {
+    // 경계값을 상수에서 가져오지 않는다. 소스에서 읽으면 상한을 500으로
+    // 바꿔도 테스트가 따라 움직여 경계가 옮겨진 사실을 아무도 못 잡는다.
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '가'.repeat(1000), itinerary: createItinerary() })
+      .expect(200);
+
+    expect((response.body as ChatResponseDto).reply).toBe(OTHER_REPLY);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('message가 1001자면 400이고 gemini를 호출하지 않는다', async () => {
+    // ↔ 위 짝. 호출 0건이 "우리 쪽에서 끊었다"는 증거다 — 상한이 없으면
+    // 이 요청이 Gemini까지 나가 400 INVALID_ARGUMENT → 502로 오청구된다.
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '가'.repeat(1001), itinerary: createItinerary() })
+      .expect(400);
+
+    expect(generate).not.toHaveBeenCalled();
+  });
 });
