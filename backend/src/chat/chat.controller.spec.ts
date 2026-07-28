@@ -96,7 +96,9 @@ describe('ChatController', () => {
     // main.ts와 같은 설정이어야 한다. 어긋나면 이 테스트가 프로덕션 동작을
     // 증명하지 못한다. 직접 ValidationPipe를 붙이면 ExternalServiceFilter가
     // 빠져 모든 kind가 500 + "Internal server error"가 된다.
-    configureApp(app);
+    // CORS 허용 origin이 실제로 무엇을 붙이는지는 test/external-service.e2e-spec.ts가
+    // 고정한다. 여기서는 시그니처를 만족시키는 리터럴이면 된다.
+    configureApp(app, 'http://localhost:3000');
     await app.init();
   });
 
