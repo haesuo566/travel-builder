@@ -53,6 +53,19 @@ export default function PlanPage() {
       setMessages((prev) => [...prev, assistantMessage]);
       setItinerary(result.itinerary);
       setActiveMobileTab("itinerary");
+    } catch (error) {
+      // 실패한 사용자 메시지는 목록에 그대로 둔다 — 되돌리면 사용자가 무엇을
+      // 보냈는지 사라진다. 안내는 말풍선으로 덧붙이고 입력창은 finally에서
+      // 다시 열리므로 그대로 다시 보낼 수 있다.
+      const errorMessage: ChatMessage = {
+        id: createMessageId(),
+        role: "assistant",
+        content:
+          error instanceof Error
+            ? error.message
+            : "요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
