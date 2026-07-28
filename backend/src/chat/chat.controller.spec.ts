@@ -16,6 +16,8 @@ import {
 } from './chat.service';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
+import { OtherResponder } from './other/other.responder';
+import { QueryStructurer } from './query/query.structurer';
 
 /**
  * POST /chat의 HTTP 계약을 고정한다. 컨트롤러 메서드를 직접 부르지 않고
@@ -107,7 +109,7 @@ describe('ChatController', () => {
     jest.restoreAllMocks();
   });
 
-  it('ChatModule이 분류기와 Gemini 주입 경로를 제공한다', async () => {
+  it('ChatModule이 세 협력자와 Gemini 주입 경로를 제공한다', async () => {
     // ClientsModule import가 사라지면 이 요청 자체가 부팅 단계에서 죽는다.
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [

@@ -4,6 +4,8 @@ import { ClientsModule } from '../clients/clients.module';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { IntentClassifier } from './intent/intent.classifier';
+import { OtherResponder } from './other/other.responder';
+import { QueryStructurer } from './query/query.structurer';
 
 /**
  * DatabaseModule을 일부러 import하지 않는다. 지금은 DB가 필요 없고,
@@ -22,6 +24,6 @@ import { IntentClassifier } from './intent/intent.classifier';
 @Module({
   imports: [ClientsModule],
   controllers: [ChatController],
-  providers: [ChatService, IntentClassifier],
+  providers: [ChatService, IntentClassifier, QueryStructurer, OtherResponder],
 })
 export class ChatModule {}
