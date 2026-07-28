@@ -1,9 +1,11 @@
-import { INestApplication, Logger, ValidationPipe } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
+import { configureApp } from '../app.setup';
+import { ExternalServiceError } from '../clients/external-service.error';
 import type { GeminiGenerateOptions } from '../clients/gemini/gemini.client';
 import { GeminiClient } from '../clients/gemini/gemini.client';
 import { ChatModule } from './chat.module';
@@ -92,10 +94,9 @@ describe('ChatController', () => {
 
     app = moduleFixture.createNestApplication();
     // main.ts와 같은 설정이어야 한다. 어긋나면 이 테스트가 프로덕션 동작을
-    // 증명하지 못한다.
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true }),
-    );
+    // 증명하지 못한다. 직접 ValidationPipe를 붙이면 ExternalServiceFilter가
+    // 빠져 모든 kind가 500 + "Internal server error"가 된다.
+    configureApp(app);
     await app.init();
   });
 
@@ -229,5 +230,46 @@ describe('ChatController', () => {
       .expect(200);
 
     expect((response.body as ChatResponseDto).reply).toBe(OTHER_REPLY);
+  });
+
+  it('gemini가 quota로 실패하면 503 + Retry-After가 나간다', async () => {
+    // ChatModule 경로에서 전역 필터가 실제로 동작하는지 본다. configureApp
+    // 대신 ValidationPipe를 직접 붙이면 이 테스트만 빨간불이 된다 —
+    // 즉 이 케이스가 전역 배선 교체의 유일한 증거다.
+    generate.mockRejectedValue(
+      new ExternalServiceError('gemini', 'quota', '쿼터 소진'),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 2박3일', itinerary: createItinerary() })
+      .expect(503);
+
+    expect(response.headers['retry-after']).toBe('60');
+    expect(response.body).toEqual({
+      statusCode: 503,
+      error: 'quota',
+      message: '외부 서비스 사용량이 초과되었습니다. 잠시 후 다시 시도하세요.',
+    });
+  });
+
+  it('gemini가 upstream으로 실패하면 502가 나간다', async () => {
+    // kind별 매핑 전체는 external-service.filter.spec.ts가 고정한다.
+    // chat 경로에서는 대표 2건(quota·upstream)만 태운다.
+    generate.mockRejectedValue(
+      new ExternalServiceError('gemini', 'upstream', '5xx'),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 2박3일', itinerary: createItinerary() })
+      .expect(502);
+
+    expect(response.headers['retry-after']).toBeUndefined();
+    expect(response.body).toEqual({
+      statusCode: 502,
+      error: 'upstream',
+      message: '외부 서비스에서 오류가 발생했습니다.',
+    });
   });
 });
