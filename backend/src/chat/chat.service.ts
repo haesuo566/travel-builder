@@ -2,9 +2,12 @@ import { Injectable } from '@nestjs/common';
 
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
+import { buildChatResponse } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OtherResponder } from './other/other.responder';
-import { buildStructuredReply } from './query/query-reply';
+import { buildMockItinerary } from './plan/mock-itineraries';
+import { buildPlanReply } from './plan/plan-reply';
+import { buildRecommendReply } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
 @Injectable()
@@ -26,13 +29,12 @@ export class ChatService {
     const intent = await this.intentClassifier.classify(request.message);
 
     switch (intent) {
-      // 두 갈래를 묶는다. 오늘 유일한 차이는 buildStructuredReply에 넘기는
-      // intent이고, 케이스를 묶으면 그 사실이 주석이 아니라 구조가 된다.
-      // 묶인 케이스에서 intent가 buildStructuredReply의 파라미터 타입으로
-      // 정확히 좁혀지므로 리터럴을 다시 적지도 않는다.
+      // 두 갈래가 처음으로 실제로 갈린다. plan만 일정을 만들고 나머지 둘은
+      // 만들지 않는다 — 직전 실행이 예고한 대로 묶은 case를 나눈다.
       case 'plan_itinerary':
+        return this.replyPlan(request);
       case 'recommend_places':
-        return this.replyStructured(intent, request);
+        return this.replyRecommend(request);
       case 'other':
         return this.replyOther(request);
       default: {
@@ -46,32 +48,53 @@ export class ChatService {
   }
 
   /**
-   * 구조화 결과를 사용자에게 되비춘다.
+   * 일정을 만드는 유일한 갈래. **`itinerary`가 만들어지는 지점도 여기 하나다** —
+   * 그래서 planStatus의 단일 진실 원천이 유지된다.
    *
-   * TODO: TEI 임베딩 + Qdrant 검색과 일정 조립을 붙이는 자리. 그때 두 갈래가
-   * 갈라지므로 이 메서드도 함께 나뉜다 — 지금 나눠 두면 같은 본문이 둘이 된다.
-   * itinerary는 아직 손대지 않는다.
+   * 요청의 일정을 보지 않는다. 목적지를 알아들으면 새 일정을, 못 알아들으면
+   * null을 낸다(게이트 1 Q4). buildPlanReply가 같은 값에서 문구를 만들므로
+   * "일정은 null인데 준비됐다고 말하는" 조합이 표현 불가능하다.
+   *
+   * TODO: 일정 생성(TEI 임베딩 + Qdrant 검색 + 조립)이 들어올 자리.
+   * buildMockItinerary 호출 하나만 교체된다. 지금 돌려주는 것은 목적지 키워드로
+   * 고른 고정 데이터이고 **생성이 아니다.**
+   *
+   * QueryStructurer를 부르지 않는다 — 목적지를 원문 키워드로 고르므로 구조화
+   * 결과를 아무도 쓰지 않는다. 부르면 결과를 버리는 Gemini 왕복이 하나 늘고,
+   * 그 왕복의 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다.
    */
-  private async replyStructured(
-    intent: 'plan_itinerary' | 'recommend_places',
+  private replyPlan(request: ChatRequestDto): ChatResponseDto {
+    const itinerary = buildMockItinerary(request.message);
+
+    return buildChatResponse(buildPlanReply(itinerary), itinerary);
+  }
+
+  /**
+   * 구조화 결과를 사용자에게 되비춘다. 이 갈래는 일정을 만들지 않으므로
+   * itinerary가 **항상 null**이고 planStatus도 항상 'none'이다(게이트 1 Q3).
+   *
+   * 요청의 일정을 되돌려주지 않는다. 되돌려주면 "화면에 띄울 일정이 있다"를 이
+   * 갈래도 주장하게 되고, planStatus를 만드는 지점이 둘로 늘어난다.
+   *
+   * TODO: 조건에 맞는 장소 목록을 붙이는 자리. 목록은 일정이 아니므로 이 갈래는
+   * 그때도 planStatus를 만들지 않는다.
+   */
+  private async replyRecommend(
     request: ChatRequestDto,
   ): Promise<ChatResponseDto> {
     const query = await this.queryStructurer.structure(request.message);
 
-    return {
-      reply: buildStructuredReply(intent, query),
-      itinerary: request.itinerary,
-    };
+    return buildChatResponse(buildRecommendReply(query), null);
   }
 
   /**
-   * 대화 응답을 만든다. 이 갈래는 일정을 만들지 않으므로 itinerary가
-   * 입력 그대로 나가는 것이 최종 형태다 — 위 두 갈래와 달리 TODO가 없다.
+   * 대화 응답을 만든다. 이 갈래도 일정을 만들지 않으므로 항상 null이다 —
+   * 위 두 갈래와 달리 TODO가 없다. 이것이 최종 형태다.
    */
   private async replyOther(request: ChatRequestDto): Promise<ChatResponseDto> {
-    return {
-      reply: await this.otherResponder.respond(request.message),
-      itinerary: request.itinerary,
-    };
+    return buildChatResponse(
+      await this.otherResponder.respond(request.message),
+      null,
+    );
   }
 }

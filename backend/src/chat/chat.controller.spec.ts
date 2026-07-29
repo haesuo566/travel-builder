@@ -15,10 +15,13 @@ import { IntentClassifier } from './intent/intent.classifier';
 import { OTHER_REPLY } from './other/other-prompt';
 import { OtherResponder } from './other/other.responder';
 import {
+  PLAN_DESTINATION_UNKNOWN_REPLY,
+  PLAN_READY_GUIDE,
+} from './plan/plan-reply';
+import {
   NO_CONDITIONS_SUMMARY,
-  PLAN_REPLY_HEAD,
-  PLAN_REPLY_TAIL,
   RECOMMEND_REPLY_HEAD,
+  RECOMMEND_REPLY_TAIL,
 } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
@@ -175,9 +178,15 @@ describe('ChatController', () => {
     const body = response.body as ChatResponseDto;
     expect(typeof body.reply).toBe('string');
     expect(body.reply.length).toBeGreaterThan(0);
-    // 세 갈래 모두 일정을 손대지 않는다. 각 분기에 실제 구현이 들어오면
-    // 이 단정은 바뀌어야 한다.
-    expect(body.itinerary).toEqual(itinerary);
+    // beforeEach가 other로 고정한다. 이 갈래는 일정을 만들지 않으므로 요청에
+    // 일정을 실어 보냈어도 응답은 none + null이다(게이트 1 Q3). 예전에는 입력을
+    // 그대로 되돌려줬고, 그 echo가 사라진 것이 이번 변경의 핵심이다.
+    expect(body.planStatus).toBe('none');
+    expect(body.itinerary).toBeNull();
+    // 요청 일정이 응답 어디에도 실리지 않는지는 아래 '요청에 실어 보낸 일정은
+    // 어느 갈래에서도 …'가 mock 셋에 없는 목적지로 센다. 여기 fixture의 목적지는
+    // 제주이고 OTHER_RESPONSE도 제주를 언급하므로 문자열 대조가 성립하지 않는다.
+    expect(itinerary.summary.destination).toBe('제주');
   });
 
   it('message가 비어 있으면 400', async () => {
@@ -187,11 +196,32 @@ describe('ChatController', () => {
       .expect(400);
   });
 
-  it('itinerary가 없으면 400', async () => {
-    await request(app.getHttpServer())
+  it('itinerary가 없어도 400이 아니다', async () => {
+    // 첫 턴이 이 요청이다. 400이던 것을 여는 변경이며, 이 경로가 막혀 있으면
+    // 프론트가 일정 없이 대화를 시작할 수 없다.
+    const response = await request(app.getHttpServer())
       .post('/chat')
-      .send({ message: '제주 2박3일' })
-      .expect(400);
+      .send({ message: '안녕하세요' })
+      .expect(200);
+
+    const body = response.body as ChatResponseDto;
+    // planStatus가 none인 것은 요청에 일정이 없어서가 아니라 other 갈래여서다.
+    // 갈래와 상태의 대응은 아래 '갈래별 planStatus…'가 따로 센다.
+    expect(body.planStatus).toBe('none');
+    expect(body.itinerary).toBeNull();
+  });
+
+  it('itinerary가 명시적 null이어도 400이 아니다', async () => {
+    // ↔ 위 짝. @IsOptional()은 명시적 null을 막지 않고 값을 null로 남긴다(실측).
+    // 프론트의 일정 상태 타입이 Itinerary | null이므로 이 모양이 실제로 온다.
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '안녕하세요', itinerary: null })
+      .expect(200);
+
+    const body = response.body as ChatResponseDto;
+    expect(body.planStatus).toBe('none');
+    expect(body.itinerary).toBeNull();
   });
 
   it('허용되지 않은 category는 400', async () => {
@@ -216,22 +246,20 @@ describe('ChatController', () => {
       .expect(400);
   });
 
-  it('DTO에 없는 속성은 제거한다', async () => {
-    const itinerary = createItinerary();
-
-    const response = await request(app.getHttpServer())
+  it('DTO에 없는 속성을 실어 보내도 200이다', async () => {
+    // whitelist가 조용히 제거한다(forbidNonWhitelisted를 켜지 않았다).
+    //
+    // 제거 자체는 여기서 볼 수 없다 — 어느 갈래도 요청 일정을 되돌려주지 않으므로
+    // 관측 창이 닫혔다. 제거 동작은 dto/chat-request.dto.spec.ts가 파이프를 직접
+    // 불러 센다. 이 케이스가 지키는 것은 "추가 필드가 400을 만들지 않는다"뿐이다.
+    await request(app.getHttpServer())
       .post('/chat')
       .send({
         message: '제주 2박3일',
-        // 서버가 그대로 되돌려주는 itinerary 안에 심어야 whitelist 동작이 보인다.
-        // 최상위에 심으면 응답이 애초에 그 필드를 담지 않으므로 아무것도 증명하지 못한다.
-        itinerary: { ...itinerary, unexpected: '무시돼야 한다' },
+        itinerary: { ...createItinerary(), unexpected: '무시돼야 한다' },
+        unexpectedTop: '무시돼야 한다',
       })
       .expect(200);
-
-    const body = response.body as ChatResponseDto;
-    expect(body.itinerary).not.toHaveProperty('unexpected');
-    expect(body.itinerary).toEqual(itinerary);
   });
 
   it('세 분류값이 각각 다른 reply로 200이 된다', async () => {
@@ -246,21 +274,117 @@ describe('ChatController', () => {
 
       const response = await request(app.getHttpServer())
         .post('/chat')
-        .send({ message: '아무 말', itinerary })
+        // 목적지 키워드가 걸리는 메시지여야 한다. plan 갈래가 목적지를 못
+        // 알아들으면 준비 완료 문구가 아니라 안내 문구를 내므로, '아무 말'로는
+        // 세 갈래의 정상 문구를 대조할 수 없다.
+        .send({ message: '제주 2박3일 일정 짜줘', itinerary })
         .expect(200);
 
       replies.push((response.body as ChatResponseDto).reply);
     }
 
-    expect(replies[0]).toContain(PLAN_REPLY_HEAD);
+    expect(replies[0]).toContain(PLAN_READY_GUIDE);
+    expect(replies[1]).toContain(RECOMMEND_REPLY_HEAD);
     // fixture의 [조건]이 실제로 파싱돼 화면까지 실렸는지 센다. 이 줄이 없으면
     // 구조화 폴백('조건: 미지정')이 발동해도 위 단정들이 전부 통과한다.
-    expect(replies[0]).toContain('지역: 제주');
-    expect(replies[1]).toContain(RECOMMEND_REPLY_HEAD);
+    // plan 갈래는 이제 구조화를 거치지 않으므로 recommend 쪽에서 센다.
+    expect(replies[1]).toContain('지역: 제주');
     expect(replies[2]).toBe(OTHER_RESPONSE);
-    // 세 문구가 실제로 갈리는지 센다. 위 셋만으로는 두 구조화 갈래가 같은
-    // 문장이 돼도(머리말만 다르고 나머지가 뭉개져도) 통과할 수 있다.
+    // 세 문구가 실제로 갈리는지 센다. 위 셋만으로는 두 갈래가 같은 문장이
+    // 돼도(머리말만 다르고 나머지가 뭉개져도) 통과할 수 있다.
     expect(new Set(replies).size).toBe(3);
+  });
+
+  it('갈래별 planStatus와 itinerary가 HTTP를 관통한다', async () => {
+    // 목적지 키워드가 걸리는 같은 메시지로 세 갈래를 태운다. plan만 ready이고
+    // 나머지 둘은 none이다 — 하위 spec이 각각 고정해도 그 합성이 HTTP를
+    // 관통하는지는 별개이며, 그 공백에서 두 갈래가 뒤바뀐 전례가 있다.
+    const statuses: string[] = [];
+    const destinations: (string | undefined)[] = [];
+
+    for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
+      mockGemini(intent, intent === 'other' ? OTHER_RESPONSE : QUERY_RESPONSE);
+
+      const response = await request(app.getHttpServer())
+        .post('/chat')
+        .send({ message: '제주 2박3일 일정 짜줘' })
+        .expect(200);
+
+      const body = response.body as ChatResponseDto;
+      statuses.push(body.planStatus);
+      destinations.push(body.itinerary?.summary.destination);
+    }
+
+    expect(statuses).toEqual(['ready', 'none', 'none']);
+    // plan 갈래만 일정을 만든다. 목적지가 실렸는지까지 봐야 빈 일정으로도
+    // ready가 통과하는 상태를 막을 수 있다.
+    expect(destinations).toEqual(['제주', undefined, undefined]);
+  });
+
+  it('plan 갈래는 일정 내용을 채워 돌려준다', async () => {
+    // ready인데 days가 비면 프론트는 빈 패널을 띄운다. 그 상태를 200으로
+    // 통과시키지 않도록 내용을 센다.
+    mockGemini('plan_itinerary', QUERY_RESPONSE);
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '부산 2박3일 일정 짜줘' })
+      .expect(200);
+
+    const body = response.body as ChatResponseDto;
+    expect(body.planStatus).toBe('ready');
+    expect(body.itinerary?.summary.destination).toBe('부산');
+    expect(body.itinerary?.days).toHaveLength(3);
+    expect(body.itinerary?.days[0].places.length).toBeGreaterThan(0);
+  });
+
+  it('plan 갈래도 목적지를 못 알아들으면 200 + none이 나간다', async () => {
+    // ↔ 위 짝. 기본 목적지로 폴백하지 않는다(게이트 1 Q4). reply까지 세는 이유는
+    // 설명 없는 none이 사용자에게 고장과 구별되지 않기 때문이다.
+    mockGemini('plan_itinerary', QUERY_RESPONSE);
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '일정 짜줘' })
+      .expect(200);
+
+    const body = response.body as ChatResponseDto;
+    expect(body.planStatus).toBe('none');
+    expect(body.itinerary).toBeNull();
+    expect(body.reply).toBe(PLAN_DESTINATION_UNKNOWN_REPLY);
+  });
+
+  it('요청에 실어 보낸 일정은 어느 갈래에서도 응답에 나타나지 않는다', async () => {
+    // 게이트 1 Q3의 결정이 HTTP를 관통하는지 센다. 강릉은 mock 일정 셋에 없으므로
+    // 응답 어디에도 나타나지 않아야 한다 — 나타나면 어느 갈래가 요청을
+    // 되돌려주고 있고, planStatus를 만드는 지점이 둘로 늘어난 것이다.
+    const itinerary = createItinerary();
+    itinerary.summary.destination = '강릉';
+
+    for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
+      mockGemini(intent, intent === 'other' ? OTHER_RESPONSE : QUERY_RESPONSE);
+
+      const response = await request(app.getHttpServer())
+        .post('/chat')
+        .send({ message: '제주 2박3일 일정 짜줘', itinerary })
+        .expect(200);
+
+      expect(JSON.stringify(response.body)).not.toContain('강릉');
+    }
+  });
+
+  it('plan 갈래는 gemini를 분류 1회만 호출한다', async () => {
+    // ↔ 'message가 1000자면 …' 케이스(other 갈래 2회)의 짝이다. 목적지를 원문
+    // 키워드로 고르므로 구조화 왕복이 없다 — 결과를 버리는 왕복이 되살아나면
+    // 여기가 깨진다.
+    mockGemini('plan_itinerary', QUERY_RESPONSE);
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 2박3일 일정 짜줘' })
+      .expect(200);
+
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it('분류를 해석할 수 없으면 200 + other 갈래 응답이 나간다', async () => {
@@ -292,18 +416,19 @@ describe('ChatController', () => {
   it('질의 구조화에 실패하면 200 + 조건 미지정 요약이 나간다', async () => {
     // ↔ 위 짝. 구조화 폴백도 HTTP까지 관통한다. 사용자 원문은 queryText로
     // 폴백되지만 화면에는 절대 나가지 않는다 — 그 경계가 여기서 고정된다.
-    mockGemini('plan_itinerary', '[조건]\n지역: 제주');
+    // 구조화를 거치는 갈래가 recommend_places 하나로 좁혀졌다.
+    mockGemini('recommend_places', '[조건]\n지역: 제주');
 
     const response = await request(app.getHttpServer())
       .post('/chat')
-      .send({ message: '제주 2박3일 짜줘', itinerary: createItinerary() })
+      .send({ message: '제주 관광지 추천', itinerary: createItinerary() })
       .expect(200);
 
     const { reply } = response.body as ChatResponseDto;
     expect(reply).toBe(
-      `${PLAN_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${PLAN_REPLY_TAIL}`,
+      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_REPLY_TAIL}`,
     );
-    expect(reply).not.toContain('제주 2박3일 짜줘');
+    expect(reply).not.toContain('제주 관광지 추천');
   });
 
   it('gemini가 quota로 실패하면 503 + Retry-After가 나간다', async () => {

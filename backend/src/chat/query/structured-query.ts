@@ -74,7 +74,11 @@ export interface ParsedQuery {
 
 /**
  * 소비자(ChatService·다음 실행)가 받는 값.
- * fellBackToRawMessage는 HTTP 응답에 노출하지 않는다 — ChatResponseDto는 무변경이다.
+ *
+ * fellBackToRawMessage는 HTTP 응답에 노출하지 않는다 — 폴백의 관측 수단은
+ * QueryStructurer의 warn 로그 하나다. ChatResponseDto에 planStatus가 들어온
+ * 뒤에도 이 결정은 유효하다: planStatus는 렌더 조건이고 폴백 관측용이 아니다.
+ * DTO를 한 번 열었다는 사실이 다른 필드를 실을 근거가 되지 않는다.
  */
 export interface StructuredQuery extends ParsedQuery {
   fellBackToRawMessage: boolean;
