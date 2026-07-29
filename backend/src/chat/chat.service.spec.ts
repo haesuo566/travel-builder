@@ -22,10 +22,13 @@ import {
   PLAN_READY_GUIDE,
 } from './plan/plan-reply';
 import {
+  buildPlacesTail,
   RECOMMEND_NO_HITS_TAIL,
   RECOMMEND_NOT_SEARCHED_TAIL,
   RECOMMEND_REPLY_HEAD,
 } from './query/query-reply';
+import type { RecommendPlace } from './query/recommend-prompt';
+import { RecommendResponder } from './query/recommend.responder';
 import { QueryStructurer } from './query/query.structurer';
 import type { StructuredQuery } from './query/structured-query';
 import { EMPTY_CONDITIONS } from './query/structured-query';
@@ -46,6 +49,10 @@ const search = jest.fn<
   [number[], QdrantSearchOptions?]
 >();
 const findByIds = jest.fn<Promise<TourContent[]>, [string[]]>();
+const describePlaces = jest.fn<
+  Promise<string>,
+  [string, StructuredQuery, RecommendPlace[]]
+>();
 
 /** TeiClient가 돌려주는 벡터. 차원이 로그에 실리는지 세려고 길이를 3으로 둔다. */
 const EMBEDDING = [0.1, 0.2, 0.3];
@@ -77,13 +84,24 @@ function createHit(title: string): TourSearchHit {
 const HITS = [createHit('성산일출봉'), createHit('우도')];
 
 /**
- * Postgres가 돌려주는 행. 이 클래스가 읽는 필드는 title 하나이므로 나머지
- * 25개 컬럼을 채우지 않는다 — 채우면 무엇이 실제로 쓰이는지 흐려진다.
+ * Postgres가 돌려주는 행.
+ *
+ * title 외에 addr1·overview도 채운다 — 이 클래스는 이제 행을 통째로
+ * RecommendResponder에 넘기고, 제목만 뽑아 넘기는 회귀는 주소가 도달하는지를
+ * 봐야 잡힌다. 나머지 23개 컬럼은 아무도 읽지 않으므로 비워 둔다.
  */
-function createRow(contentid: string, title: string): TourContent {
+function createRow(
+  contentid: string,
+  title: string,
+  addr1 = '',
+  overview: string | null = null,
+): TourContent {
   const row = new TourContent();
   row.contentid = contentid;
   row.title = title;
+  row.addr1 = addr1;
+  row.addr2 = '';
+  row.overview = overview;
   return row;
 }
 
@@ -93,7 +111,7 @@ function createRow(contentid: string, title: string): TourContent {
  * Postgres의 현재 값인지 구별되지 않고, 조회를 통째로 지워도 테스트가 통과한다.
  */
 const ROWS = [
-  createRow('content-성산일출봉', '한라산'),
+  createRow('content-성산일출봉', '한라산', '제주 제주시 1100로', '백록담'),
   createRow('content-우도', '마라도'),
 ];
 
@@ -167,6 +185,7 @@ async function createService(): Promise<ChatService> {
       { provide: TeiClient, useValue: { embedQuery } },
       { provide: QdrantSearchClient, useValue: { search } },
       { provide: TourContentLookup, useValue: { findByIds } },
+      { provide: RecommendResponder, useValue: { describe: describePlaces } },
     ],
   }).compile();
   return moduleRef.get(ChatService);
@@ -210,6 +229,14 @@ beforeEach(() => {
           .map((id) => ROWS.find((row) => row.contentid === id))
           .filter((row): row is TourContent => row !== undefined),
       ),
+    );
+  // 실제 RecommendResponder의 폴백 계약을 그대로 흉내낸다 — 받은 장소의
+  // 이름으로 맺음말을 만든다. 고정 문자열로 두면 서비스가 엉뚱한 장소를
+  // 넘겨도 문구가 같아, 이름이 도달하는지 보는 기존 테스트가 거짓으로 통과한다.
+  describePlaces
+    .mockReset()
+    .mockImplementation((_message, _query, places) =>
+      Promise.resolve(buildPlacesTail(places.map((place) => place.title))),
     );
   // 스파이를 걸지 않으면 임베딩 갈래를 도는 테스트마다 콘솔이 로그로 덮인다.
   debugLog = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
@@ -733,6 +760,145 @@ describe('ChatService — 장소 상세 조회', () => {
   });
 });
 
+describe('ChatService — 장소 소개 위임', () => {
+  it('찾은 장소가 있으면 RecommendResponder를 한 번 부른다', async () => {
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(describePlaces).toHaveBeenCalledTimes(1);
+  });
+
+  it('원문·구조화 결과·Postgres 행을 그대로 넘긴다', async () => {
+    // 행을 통째로 넘기는 것이 이 변경의 핵심이다. 제목만 뽑아 넘기면 모델은
+    // 이름만 보고 자기 지식으로 답하게 되고, Postgres를 읽은 이유가 사라진다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    const [message, query, places] = describePlaces.mock.calls[0];
+    expect(message).toBe('제주 일출 명소 추천');
+    expect(query).toBe(STRUCTURED);
+    expect(places).toEqual(ROWS);
+    // 주소·소개가 실제로 실렸는지 따로 센다. toEqual만 두면 fixture가 비어도
+    // 통과하고, 그러면 "행을 통째로 넘긴다"가 아무것도 보장하지 않는다.
+    expect(places[0].addr1).toBe('제주 제주시 1100로');
+    expect(places[0].overview).toBe('백록담');
+  });
+
+  it('모델이 쓴 맺음말을 조건 요약 뒤에 싣는다', async () => {
+    // 자유 텍스트가 화면까지 도달하는지 본다. 여기서 끊기면 Gemini 왕복이
+    // 통째로 낭비되고 사용자는 예전과 같은 이름 목록만 받는다.
+    classify.mockResolvedValue('recommend_places');
+    describePlaces.mockResolvedValue('한라산은 백록담이 유명해요.');
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toBe(
+      `${RECOMMEND_REPLY_HEAD} — 지역: 제주. 한라산은 백록담이 유명해요.`,
+    );
+  });
+
+  it('모델이 무엇을 쓰든 조건 요약은 코드가 만든다', async () => {
+    // ↔ 위 짝. 앞부분까지 모델에 넘기면 "무엇으로 이해했는지"를 사용자가
+    // 대조할 근거가 사라진다 — 모델이 조건을 흘려도 아무도 알 수 없다.
+    classify.mockResolvedValue('recommend_places');
+    describePlaces.mockResolvedValue('아무 말이나 합니다.');
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toContain('지역: 제주');
+  });
+
+  it('↔ 짝: hit이 0건이면 부르지 않는다', async () => {
+    // 소개할 장소가 없는데 부르면 결과를 버리는 Gemini 왕복이 하나 늘고,
+    // 그 왕복의 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다
+    // (임베딩·검색·조회 짝과 같은 이유).
+    classify.mockResolvedValue('recommend_places');
+    search.mockResolvedValue([]);
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(describePlaces).not.toHaveBeenCalled();
+    expect(response.reply).toContain(RECOMMEND_NO_HITS_TAIL);
+  });
+
+  it('↔ 짝: 벡터를 만들지 못하면 부르지 않는다', async () => {
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '   ',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    const response = await service.chat(createRequest('   '));
+
+    expect(describePlaces).not.toHaveBeenCalled();
+    expect(response.reply).toContain(RECOMMEND_NOT_SEARCHED_TAIL);
+  });
+
+  it('↔ 짝: Postgres에서 전부 못 찾으면 부르지 않는다', async () => {
+    classify.mockResolvedValue('recommend_places');
+    findByIds.mockResolvedValue([]);
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(describePlaces).not.toHaveBeenCalled();
+    expect(response.reply).toContain(RECOMMEND_NO_HITS_TAIL);
+  });
+
+  it('↔ 짝: 이름이 전부 비어 있으면 부르지 않는다', async () => {
+    // 이름 없는 장소를 소개하라고 시키면 모델은 주소만 보고 이름을 지어낸다.
+    // 사용자가 받는 사실은 hit 0건과 같으므로 문구도 같다.
+    classify.mockResolvedValue('recommend_places');
+    findByIds.mockResolvedValue([
+      createRow('content-성산일출봉', ''),
+      createRow('content-우도', '   '),
+    ]);
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(describePlaces).not.toHaveBeenCalled();
+    expect(response.reply).toContain(RECOMMEND_NO_HITS_TAIL);
+  });
+
+  it('이름이 빈 장소는 빼고 나머지만 넘긴다', async () => {
+    // ↔ 위 짝. 한 건이 비었다고 나머지까지 버리지 않는다 — 빈 이름을 그대로
+    // 넘기면 모델이 그 자리를 지어낸다.
+    classify.mockResolvedValue('recommend_places');
+    findByIds.mockResolvedValue([ROWS[0], createRow('content-우도', '')]);
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    const [, , places] = describePlaces.mock.calls[0];
+    expect(places).toEqual([ROWS[0]]);
+  });
+
+  const nonDescribingIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+
+  it.each(nonDescribingIntents)(
+    '↔ 짝: %s는 장소를 소개하지 않는다',
+    async (intent) => {
+      classify.mockResolvedValue(intent);
+      const service = await createService();
+
+      await service.chat(createRequest(PLAN_MESSAGE));
+
+      expect(describePlaces).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('ChatService — 대화 위임', () => {
   it('other 갈래는 OtherResponder를 message만으로 한 번 호출한다', async () => {
     classify.mockResolvedValue('other');
@@ -825,6 +991,20 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
     const failure = new Error('Connection terminated unexpectedly');
     classify.mockResolvedValue('recommend_places');
     findByIds.mockRejectedValue(failure);
+    const service = await createService();
+
+    await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(
+      failure,
+    );
+  });
+
+  it('RecommendResponder가 던진 ExternalServiceError를 삼키지 않는다', async () => {
+    // 일곱 번째 협력자다. 이쪽 폴백은 검증 실패 전용이고 호출 실패에는
+    // 발동하지 않는다 — 여기서 삼키면 쿼터 소진이 "이런 곳은 어때요?"가 되어
+    // 정상 추천과 구별되지 않고, 503도 Retry-After도 사라진다.
+    const failure = quotaFailure();
+    classify.mockResolvedValue('recommend_places');
+    describePlaces.mockRejectedValue(failure);
     const service = await createService();
 
     await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(

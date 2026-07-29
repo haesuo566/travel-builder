@@ -29,13 +29,15 @@ import {
   PLAN_READY_GUIDE,
 } from './plan/plan-reply';
 import {
+  buildPlacesTail,
   NO_CONDITIONS_SUMMARY,
   RECOMMEND_NO_HITS_TAIL,
   RECOMMEND_NOT_SEARCHED_TAIL,
-  RECOMMEND_PLACES_HEAD,
   RECOMMEND_REPLY_HEAD,
 } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
+import { RECOMMEND_SYSTEM_INSTRUCTION } from './query/recommend-prompt';
+import { RecommendResponder } from './query/recommend.responder';
 
 /**
  * POST /chat의 HTTP 계약을 고정한다. 컨트롤러 메서드를 직접 부르지 않고
@@ -91,7 +93,10 @@ const search = jest.fn<
   [number[], QdrantSearchOptions?]
 >();
 
-/** 검색이 돌려주는 hit 하나. title만 화면에 나가므로 나머지는 형식만 채운다. */
+/**
+ * 검색이 돌려주는 hit 하나. 서비스가 실제로 읽는 것은 payload.contentid
+ * 하나이고, title은 **읽히지 않아야 하는 값**이라 부정 단정의 재료로 둔다.
+ */
 const TOUR_HIT: TourSearchHit = {
   id: 'point-1',
   score: 0.9,
@@ -120,12 +125,18 @@ const find = jest.fn<Promise<TourContent[]>, [unknown]>();
 
 /**
  * TOUR_HIT에 대응하는 Postgres 행. **제목을 payload.title과 다른 단어로 둔다** —
- * 같으면 화면에 실린 이름의 출처가 색인 사본인지 DB인지 구별되지 않는다.
+ * 같으면 프롬프트에 실린 이름의 출처가 색인 사본인지 DB인지 구별되지 않는다.
+ *
+ * 주소·소개도 채운다. 이 값들은 실제 컬럼에 default ''가 걸려 있어 운영에서는
+ * 항상 문자열이며, 비워 두면 프롬프트 조립이 실제와 다른 입력으로 돈다.
  */
 function createRow(): TourContent {
   const row = new TourContent();
   row.contentid = '126508';
   row.title = '한라산';
+  row.addr1 = '제주특별자치도 제주시';
+  row.addr2 = '1100로 2070-61';
+  row.overview = '남한에서 가장 높은 산이다.';
   return row;
 }
 
@@ -160,18 +171,44 @@ const QUERY_RESPONSE = [
 const OTHER_RESPONSE = '제주는 사계절 모두 좋아요. 어느 계절이 좋으세요?';
 
 /**
- * 구조화 갈래는 요청 하나에 generate를 두 번 부른다 — 분류 1회 + 갈래별 1회.
- * 그래서 호출 지점을 systemInstruction으로 가른다. mockResolvedValueOnce 사슬을
- * 쓰면 호출 순서가 테스트마다 암묵 계약이 되고, 갈래가 늘 때 전부 다시 세어야 한다.
+ * 검증을 통과하는 장소 소개.
+ *
+ * **TOUR_ROW.title을 일부러 담지 않는다.** 담으면 "이름이 화면까지 도달한다"가
+ * 모델 응답을 그대로 실은 것만으로 성립해, 장소 데이터가 실제로 프롬프트까지
+ * 갔는지와 구별되지 않는다 — 그쪽은 프롬프트를 직접 세는 테스트가 따로 본다.
  */
-function mockGemini(intentResponse: string, branchResponse: string): void {
-  generate.mockImplementation((_prompt, opts) =>
-    Promise.resolve(
-      opts?.systemInstruction === INTENT_SYSTEM_INSTRUCTION
-        ? intentResponse
-        : branchResponse,
-    ),
-  );
+const RECOMMEND_RESPONSE = '분화구를 걸어 올라갈 수 있는 곳이에요.';
+
+/**
+ * 추천 갈래는 요청 하나에 generate를 **세 번** 부른다 — 분류 1회 + 구조화 1회 +
+ * 소개 1회. 그래서 호출 지점을 systemInstruction으로 가른다. mockResolvedValueOnce
+ * 사슬을 쓰면 호출 순서가 테스트마다 암묵 계약이 되고, 갈래가 늘 때 전부 다시
+ * 세어야 한다.
+ *
+ * 소개 응답에 기본값을 두는 이유는 대부분의 테스트가 그 값을 신경 쓰지 않기
+ * 때문이다. 신경 쓰는 테스트만 세 번째 인자를 넘긴다.
+ */
+function mockGemini(
+  intentResponse: string,
+  branchResponse: string,
+  recommendResponse: string = RECOMMEND_RESPONSE,
+): void {
+  generate.mockImplementation((_prompt, opts) => {
+    if (opts?.systemInstruction === INTENT_SYSTEM_INSTRUCTION) {
+      return Promise.resolve(intentResponse);
+    }
+    if (opts?.systemInstruction === RECOMMEND_SYSTEM_INSTRUCTION) {
+      return Promise.resolve(recommendResponse);
+    }
+    return Promise.resolve(branchResponse);
+  });
+}
+
+/** 소개 호출에 넘어간 프롬프트. 없으면 호출되지 않은 것이다. */
+function recommendPrompt(): string | undefined {
+  return generate.mock.calls.find(
+    ([, opts]) => opts?.systemInstruction === RECOMMEND_SYSTEM_INSTRUCTION,
+  )?.[0];
 }
 
 /**
@@ -242,7 +279,7 @@ describe('ChatController', () => {
     jest.restoreAllMocks();
   });
 
-  it('ChatModule이 여섯 협력자와 Gemini 주입 경로를 제공한다', async () => {
+  it('ChatModule이 일곱 협력자와 Gemini 주입 경로를 제공한다', async () => {
     // ClientsModule·DatabaseModule import가 사라지면 이 요청 자체가 부팅
     // 단계에서 죽는다.
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -261,8 +298,8 @@ describe('ChatController', () => {
       .useModule(FakeDatabaseModule)
       .compile();
 
-    // 여섯을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
-    // 단계에서 죽으므로, 제목이 말하는 "여섯 협력자"를 여기서 그대로 단정한다.
+    // 일곱을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
+    // 단계에서 죽으므로, 제목이 말하는 "일곱 협력자"를 여기서 그대로 단정한다.
     expect(moduleFixture.get(IntentClassifier)).toBeInstanceOf(
       IntentClassifier,
     );
@@ -280,6 +317,11 @@ describe('ChatController', () => {
     // 잡힌다 — 네트워크만 빠지고 DI 배선은 그대로 확인된다.
     expect(moduleFixture.get(TourContentLookup)).toBeInstanceOf(
       TourContentLookup,
+    );
+    // 일곱째는 앞 셋과 같이 ChatModule의 providers다. 빠지면 ChatService가
+    // 주입받을 수 없어 부팅이 죽는다.
+    expect(moduleFixture.get(RecommendResponder)).toBeInstanceOf(
+      RecommendResponder,
     );
   });
 
@@ -541,17 +583,18 @@ describe('ChatController', () => {
       .expect(200);
 
     const { reply } = response.body as ChatResponseDto;
+    // 맺음말이 모델의 자유 텍스트로 바뀌어도 앞부분은 코드가 만든다 — 전문
+    // 등가 단정이 그 경계를 고정한다.
     expect(reply).toBe(
-      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_PLACES_HEAD} ${TOUR_ROW.title}`,
+      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_RESPONSE}`,
     );
     expect(reply).not.toContain('제주 관광지 추천');
   });
 
-  it('검색된 장소 이름이 HTTP를 관통한다', async () => {
-    // 문구 조립은 query-reply.spec.ts가 고정하지만, 그 이름이 실제로 Qdrant
-    // 검색 → Postgres 조회를 거쳐 HTTP 본문까지 도달하는지는 별개다. 서비스가
-    // 검색 결과를 버리고 조건 요약만 내보내도 하위 spec은 전부 초록불이다.
-    mockGemini('recommend_places', QUERY_RESPONSE);
+  it('모델이 쓴 소개가 HTTP를 관통한다', async () => {
+    // 자유 텍스트가 화면까지 도달하는지 본다. 서비스가 소개를 버리고 예전
+    // 이름 목록을 내보내도 하위 spec은 전부 초록불이다.
+    mockGemini('recommend_places', QUERY_RESPONSE, '한라산 좋아요.');
     search.mockResolvedValue([TOUR_HIT]);
 
     const response = await request(app.getHttpServer())
@@ -560,11 +603,77 @@ describe('ChatController', () => {
       .expect(200);
 
     const { reply } = response.body as ChatResponseDto;
-    expect(reply).toContain('지역: 제주');
-    // 이름의 출처가 Postgres인지 색인 사본인지를 두 단정으로 가른다. 긍정만
+    expect(reply).toBe(`${RECOMMEND_REPLY_HEAD} — 지역: 제주. 한라산 좋아요.`);
+  });
+
+  it('Postgres에서 읽은 장소 데이터가 소개 프롬프트까지 도달한다', async () => {
+    // 검색 → 조회 → 프롬프트가 실제로 이어지는지 본다. 이름만 넘기거나
+    // 색인 사본을 넘기는 회귀는 응답만 보고는 드러나지 않는다 — 모델 응답은
+    // 무엇을 받았든 같은 문자열이기 때문이다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockResolvedValue([TOUR_HIT]);
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    const prompt = recommendPrompt();
+    expect(prompt).toContain(TOUR_ROW.title);
+    expect(prompt).toContain(TOUR_ROW.addr1);
+    expect(prompt).toContain(TOUR_ROW.overview);
+    // 이름의 출처가 Postgres인지 색인 사본인지를 부정 단정으로 가른다. 긍정만
     // 두면 조회를 지우고 payload.title로 되돌려도 통과한다.
-    expect(reply).toContain(TOUR_ROW.title);
-    expect(reply).not.toContain(TOUR_HIT.payload.title);
+    expect(prompt).not.toContain(TOUR_HIT.payload.title);
+    // 사용자 원문도 재료다 — 조건 요약 다섯 필드에는 "무엇을 하고 싶은지"가
+    // 남지 않는다.
+    expect(prompt).toContain('제주 관광지 추천');
+  });
+
+  it('소개가 상한을 넘으면 200 + 이름 목록이 나간다', async () => {
+    // RecommendResponder의 검증 실패 폴백이 HTTP까지 관통한다. 이 경로가
+    // 없으면 상한 초과가 502로 새거나 빈 말풍선이 되는 회귀를 아무도 잡지
+    // 못한다 — 폴백이 발동해도 응답은 200이고 문장 틀도 정상이다.
+    mockGemini('recommend_places', QUERY_RESPONSE, '가'.repeat(1001));
+    search.mockResolvedValue([TOUR_HIT]);
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    const { reply } = response.body as ChatResponseDto;
+    expect(reply).toBe(
+      `${RECOMMEND_REPLY_HEAD} — 지역: 제주. ${buildPlacesTail([TOUR_ROW.title])}`,
+    );
+  });
+
+  it('recommend 갈래는 gemini를 세 번 호출한다', async () => {
+    // 분류 1회 + 구조화 1회 + 소개 1회. plan 갈래 1회·other 갈래 2회와 함께
+    // 갈래별 왕복 수를 고정한다 — 소개 호출이 사라지면 여기가 깨진다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    expect(generate).toHaveBeenCalledTimes(3);
+  });
+
+  it('↔ 짝: hit이 0건이면 소개를 호출하지 않는다', async () => {
+    // 소개할 장소가 없는데 부르면 결과를 버리는 왕복이 하나 늘고, 그 왕복의
+    // 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockResolvedValue([]);
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    expect(recommendPrompt()).toBeUndefined();
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('hit의 contentid로 tour_contents를 조회한다', async () => {

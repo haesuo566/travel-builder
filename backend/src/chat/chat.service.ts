@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
+import type { TourContent } from '../database/entities';
 import { TourContentLookup } from '../database/tour-content.lookup';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
@@ -10,8 +11,13 @@ import { IntentClassifier } from './intent/intent.classifier';
 import { OtherResponder } from './other/other.responder';
 import { buildMockItinerary } from './plan/mock-itineraries';
 import { buildPlanReply } from './plan/plan-reply';
-import { buildRecommendReply } from './query/query-reply';
+import {
+  buildRecommendReply,
+  composeRecommendReply,
+} from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
+import { RecommendResponder } from './query/recommend.responder';
+import type { StructuredQuery } from './query/structured-query';
 
 /**
  * 장소 추천 갈래가 받아오는 검색 결과 개수. 고정값이다.
@@ -33,6 +39,7 @@ export class ChatService {
     private readonly tei: TeiClient,
     private readonly qdrant: QdrantSearchClient,
     private readonly tourContents: TourContentLookup,
+    private readonly recommendResponder: RecommendResponder,
   ) {}
 
   /**
@@ -87,8 +94,12 @@ export class ChatService {
   }
 
   /**
-   * 구조화 결과를 사용자에게 되비춘다. 이 갈래는 일정을 만들지 않으므로
-   * itinerary가 **항상 null**이고 planStatus도 항상 'none'이다(게이트 1 Q3).
+   * 구조화 결과를 되비추고, 찾은 장소는 모델이 소개하게 한다. 이 갈래는 일정을
+   * 만들지 않으므로 itinerary가 **항상 null**이고 planStatus도 항상
+   * 'none'이다(게이트 1 Q3).
+   *
+   * 협력자가 셋에서 넷으로 늘었다(구조화 → 임베딩 → 검색·조회 → 소개).
+   * 앞의 셋은 재료를 만들고 마지막 하나만 문장을 쓴다.
    *
    * 요청의 일정을 되돌려주지 않는다. 되돌려주면 "화면에 띄울 일정이 있다"를 이
    * 갈래도 주장하게 되고, planStatus를 만드는 지점이 둘로 늘어난다.
@@ -107,21 +118,63 @@ export class ChatService {
     const query = await this.queryStructurer.structure(request.message);
     const embedding = await this.embedQueryText(query.queryText);
     // null을 빈 배열로 접지 않는다. 검색을 못 한 것과 검색 결과가 없는 것은
-    // 사용자에게 다른 사실이고, 문구를 고르는 것은 buildRecommendReply다.
-    const placeNames =
+    // 사용자에게 다른 사실이고, 문구를 고르는 것은 아래 두 갈래다.
+    const places =
       embedding === null ? null : await this.searchPlaces(embedding);
 
-    return buildChatResponse(buildRecommendReply(query, placeNames), null);
+    return buildChatResponse(
+      await this.describePlaces(request.message, query, places),
+      null,
+    );
   }
 
   /**
-   * 질의 벡터로 장소를 찾고, 이름은 Postgres에서 읽는다.
+   * 찾은 장소를 소개하는 문구를 만든다.
    *
-   * payload.title을 쓰지 않는다. Qdrant payload는 core가 색인할 때 떠 놓은
-   * 사본이고 제목의 단일 진실 원천은 tour_contents다 — 색인 이후 이름이 바뀌면
-   * 두 값이 갈리고, payload를 쓰면 화면에 옛 이름이 나간다. Qdrant가 정하는
-   * 것은 **어떤 장소를 어떤 순서로** 보여줄지이고, 그 장소가 **무엇인지**는
+   * **소개할 장소가 있을 때만 Gemini를 부른다.** 검색을 못 했거나(null) 결과가
+   * 0건이면 기존 고정 문구를 그대로 쓴다 — 부르면 결과를 버리는 왕복이 하나
+   * 늘고, 그 왕복의 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다
+   * (replyPlan·embedQueryText와 같은 규칙). 게다가 모델에게 줄 사실이 하나도
+   * 없으므로, 부르면 받는 것은 지어낸 장소뿐이다.
+   *
+   * 이름이 빈 행은 걸러서 넘긴다. title은 색인·수집 사고로 ''일 수 있고
+   * (query-reply.ts의 빈 이름 주석), 이름 없는 장소를 소개하라고 시키면 모델은
+   * 주소만 보고 이름을 지어낸다. 전부 걸러져 0개가 되면 hit 0건과 같은 문구다.
+   *
+   * 행을 통째로 넘긴다. 제목만 뽑으면 모델은 이름만 보고 자기 지식으로 답하게
+   * 되고, Postgres를 다시 읽은 이유가 사라진다.
+   */
+  private async describePlaces(
+    message: string,
+    query: StructuredQuery,
+    places: TourContent[] | null,
+  ): Promise<string> {
+    const found = places?.filter((place) => place.title.trim() !== '') ?? [];
+
+    if (found.length === 0) {
+      return buildRecommendReply(
+        query,
+        places?.map((place) => place.title) ?? null,
+      );
+    }
+
+    return composeRecommendReply(
+      query,
+      await this.recommendResponder.describe(message, query, found),
+    );
+  }
+
+  /**
+   * 질의 벡터로 장소를 찾고, 상세는 Postgres에서 읽는다.
+   *
+   * payload를 쓰지 않는다. Qdrant payload는 core가 색인할 때 떠 놓은
+   * 사본이고 단일 진실 원천은 tour_contents다 — 색인 이후 값이 바뀌면 두 쪽이
+   * 갈리고, payload를 쓰면 화면에 옛 값이 나간다. Qdrant가 정하는 것은
+   * **어떤 장소를 어떤 순서로** 보여줄지이고, 그 장소가 **무엇인지**는
    * Postgres가 정한다.
+   *
+   * 제목만 뽑지 않고 행을 그대로 돌려준다. 주소·소개가 모델에게 줄 사실이며,
+   * 여기서 이름만 남기면 그 사실이 호출자에게 도달하지 못한다.
    *
    * 관련도 순서는 contentid 배열의 순서로 넘어간다. 되받는 순서를 지키는 것은
    * TourContentLookup의 책임이다(In() 조회가 입력 순서를 보장하지 않는다).
@@ -133,18 +186,16 @@ export class ChatService {
    * hit이 섞였다는 뜻이다 — payload 파싱 실패인지 Postgres 미동기화인지는
    * QdrantSearchClient와 TourContentLookup의 warn이 각각 가른다.
    */
-  private async searchPlaces(embedding: number[]): Promise<string[]> {
+  private async searchPlaces(embedding: number[]): Promise<TourContent[]> {
     const hits = await this.qdrant.search(embedding, {
       limit: RECOMMEND_SEARCH_LIMIT,
     });
 
     this.logger.debug(`장소 검색 완료: hit=${hits.length}`);
 
-    const contents = await this.tourContents.findByIds(
+    return this.tourContents.findByIds(
       hits.map((hit) => hit.payload.contentid),
     );
-
-    return contents.map((content) => content.title);
   }
 
   /**

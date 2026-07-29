@@ -7,6 +7,7 @@ import { ChatService } from './chat.service';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OtherResponder } from './other/other.responder';
 import { QueryStructurer } from './query/query.structurer';
+import { RecommendResponder } from './query/recommend.responder';
 
 /**
  * ClientsModule은 ConfigModule만 import하고 세 클라이언트 생성자가 SDK
@@ -32,6 +33,12 @@ import { QueryStructurer } from './query/query.structurer';
 @Module({
   imports: [ClientsModule, DatabaseModule],
   controllers: [ChatController],
-  providers: [ChatService, IntentClassifier, QueryStructurer, OtherResponder],
+  providers: [
+    ChatService,
+    IntentClassifier,
+    QueryStructurer,
+    OtherResponder,
+    RecommendResponder,
+  ],
 })
 export class ChatModule {}
