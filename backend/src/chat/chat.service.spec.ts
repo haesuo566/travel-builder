@@ -122,6 +122,7 @@ function firstMessage(spy: jest.SpyInstance): string {
 }
 
 let debugLog: jest.SpyInstance;
+let warnLog: jest.SpyInstance;
 
 beforeEach(() => {
   classify.mockReset();
@@ -130,7 +131,7 @@ beforeEach(() => {
   embedQuery.mockReset().mockResolvedValue(EMBEDDING);
   // 스파이를 걸지 않으면 임베딩 갈래를 도는 테스트마다 콘솔이 로그로 덮인다.
   debugLog = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
-  jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+  warnLog = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
 });
 
 afterEach(() => {
@@ -376,6 +377,40 @@ describe('ChatService — 질의 임베딩', () => {
 
     expect(embedQuery).toHaveBeenCalledTimes(1);
     expect(embedQuery).toHaveBeenCalledWith('제주 일출 명소 추천');
+  });
+
+  it('공백뿐인 질의는 임베딩하지 않고 warn을 남긴다', async () => {
+    // @IsNotEmpty()는 공백뿐인 문자열을 통과시킨다(실측). 그 메시지가 구조화
+    // 폴백을 타면 원문이 그대로 queryText가 되어 여기 도달하고, 그대로 넘기면
+    // TeiClient가 invalid-request로 던져 200이던 갈래가 502가 된다 — 사용자
+    // 입력 문제를 외부 서비스 장애로 오청구하는 셈이다(ChatRequestDto.message의
+    // MaxLength 주석과 같은 판단).
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '   ',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    const response = await service.chat(createRequest('   '));
+
+    expect(embedQuery).not.toHaveBeenCalled();
+    // 건너뛴 사실이 로그에 없으면 "왜 이 요청만 검색이 비었는가"를 알 수 없다.
+    expect(warnLog).toHaveBeenCalledTimes(1);
+    expect(response.reply).toContain(RECOMMEND_REPLY_HEAD);
+  });
+
+  it('↔ 짝: 질의가 있으면 건너뛰기 warn을 남기지 않는다', async () => {
+    // 이 짝이 없으면 항상 건너뛰는 구현도 통과하고, 그러면 임베딩이 통째로
+    // 사라져도 응답은 200이라 아무도 모른다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(warnLog).not.toHaveBeenCalled();
   });
 
   it('임베딩을 만들어도 응답에 벡터를 싣지 않는다', async () => {

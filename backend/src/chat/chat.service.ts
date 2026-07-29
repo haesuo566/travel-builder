@@ -101,13 +101,28 @@ export class ChatService {
    * 다른 공간이 되고, 같은 장소가 검색되지 않는다. 재조립이 임베딩 대상을
    * 만드는 공정이다(parseStructuredQuery의 '벡터에 들어가지 않는다' 주석).
    *
+   * 공백뿐인 질의는 건너뛴다. @IsNotEmpty()가 공백 문자열을 통과시키므로
+   * 구조화 폴백이 그 원문을 queryText로 쓰면 여기 도달하고, 그대로 넘기면
+   * TeiClient가 invalid-request로 던져 200이던 갈래가 502가 된다 — 사용자
+   * 입력 문제를 외부 서비스 장애로 오청구하게 된다(ChatRequestDto.message의
+   * MaxLength와 같은 판단). 정상 경로의 queryText에는 라벨이 붙으므로
+   * 이 분기는 폴백 전용이다.
+   *
    * 실패는 삼키지 않는다 — 협력자 넷에 같은 규칙이 걸린다.
    *
    * TODO: 이 벡터로 Qdrant를 검색하는 자리. 아직 소비자가 없어 차원만 남긴다.
    * 차원은 컬렉션과 맞아야 하는데 코드가 강제하지 않으므로, 이 로그가 붙는
-   * 시점의 유일한 관측 수단이다.
+   * 시점의 유일한 관측 수단이다. 검색이 붙으면 건너뛴 요청은 벡터 없이
+   * 조건 필터만으로 도는 경로가 된다.
    */
   private async embedQueryText(queryText: string): Promise<void> {
+    if (queryText.trim() === '') {
+      this.logger.warn(
+        '질의 임베딩 건너뜀: 질의 텍스트가 비어 있어 검색 재료를 만들지 못했습니다.',
+      );
+      return;
+    }
+
     const embedding = await this.tei.embedQuery(queryText);
 
     this.logger.debug(`질의 임베딩 완료: 차원=${embedding.length}`);

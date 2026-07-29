@@ -449,6 +449,33 @@ describe('ChatController', () => {
     expect(reply).not.toContain('제주 관광지 추천');
   });
 
+  it('공백뿐인 메시지도 200으로 나간다', async () => {
+    // @IsNotEmpty()는 공백뿐인 문자열을 통과시키므로 이 요청은 400이 아니다.
+    // 구조화가 폴백하면 그 원문이 그대로 queryText가 되고, 임베딩에 그대로
+    // 넘기면 TeiClient가 invalid-request로 던져 502가 된다. 폴백 행은 조용해서
+    // (응답이 200이고 문장 틀도 정상) 서비스 단위 테스트만으로는 이 회귀가
+    // HTTP까지 관통하는지 알 수 없다.
+    mockGemini('recommend_places', '질의를 만들 수 없습니다.');
+    // 실제 TeiClient의 계약을 그대로 흉내낸다 — 빈 질의는 네트워크를 타기 전에
+    // 거절한다(tei.client.ts:43-55). 기본 mock으로 두면 방어가 사라져도 통과한다.
+    embedQuery.mockImplementation((text) =>
+      text.trim() === ''
+        ? Promise.reject(
+            new ExternalServiceError('tei', 'invalid-request', '빈 질의'),
+          )
+        : Promise.resolve([0.1, 0.2, 0.3]),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '   ' })
+      .expect(200);
+
+    expect((response.body as ChatResponseDto).reply).toContain(
+      RECOMMEND_REPLY_HEAD,
+    );
+  });
+
   it('gemini가 quota로 실패하면 503 + Retry-After가 나간다', async () => {
     // ChatModule 경로에서 전역 필터가 실제로 동작하는지 본다. configureApp
     // 대신 ValidationPipe를 직접 붙이면 이 테스트만 빨간불이 된다 —
