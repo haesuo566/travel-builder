@@ -9,7 +9,6 @@ import type { ChatResponseDto } from './dto/chat-response.dto';
 import { buildChatResponse } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OtherResponder } from './other/other.responder';
-import { buildMockItinerary } from './plan/mock-itineraries';
 import { buildPlanReply } from './plan/plan-reply';
 import {
   buildRecommendReply,
@@ -20,13 +19,17 @@ import { RecommendResponder } from './query/recommend.responder';
 import type { StructuredQuery } from './query/structured-query';
 
 /**
- * 장소 추천 갈래가 받아오는 검색 결과 개수. 고정값이다.
+ * 장소를 찾는 갈래가 받아오는 검색 결과 개수. 고정값이다.
  *
- * QdrantSearchClient의 기본값도 10이지만 생략하지 않는다 — 개수가 이 갈래의
+ * plan·recommend 두 갈래가 공유한다. 갈래별로 나누지 않는 이유는 같은 질의가
+ * 갈래에 따라 다른 수의 장소를 받을 근거가 없기 때문이다 — 갈리면 사용자는
+ * 문장을 어떻게 시작했는지에 따라 후보 폭이 달라지는 것을 설명받지 못한다.
+ *
+ * QdrantSearchClient의 기본값도 10이지만 생략하지 않는다 — 개수가 이 갈래들의
  * 사용자 계약이므로, 클라이언트 기본값이 바뀌면 조용히 따라 움직이는 자리에
  * 두지 않는다.
  */
-const RECOMMEND_SEARCH_LIMIT = 10;
+const PLACE_SEARCH_LIMIT = 10;
 
 @Injectable()
 export class ChatService {
@@ -45,7 +48,7 @@ export class ChatService {
   /**
    * 메시지를 분류해 갈래로 보낸다.
    *
-   * 협력자 다섯이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
+   * 협력자 일곱이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
    * kind별로 500/502/503/504로 매핑한다. 여기서 삼키면 쿼터 소진이
    * "여행과 무관한 메시지"로 둔갑한다.
    */
@@ -53,8 +56,10 @@ export class ChatService {
     const intent = await this.intentClassifier.classify(request.message);
 
     switch (intent) {
-      // 두 갈래가 처음으로 실제로 갈린다. plan만 일정을 만들고 나머지 둘은
-      // 만들지 않는다 — 직전 실행이 예고한 대로 묶은 case를 나눈다.
+      // plan과 recommend는 같은 파이프라인을 타고 planStatus도 둘 다 'none'이다.
+      // 갈리는 것은 찾은 장소를 무엇으로 만드느냐뿐이며, 오늘 그 차이는 문구
+      // 하나로만 나타난다 — 두 case를 다시 묶지 않는 이유는 조립이 들어올 자리가
+      // replyPlan이기 때문이다.
       case 'plan_itinerary':
         return this.replyPlan(request);
       case 'recommend_places':
@@ -72,25 +77,34 @@ export class ChatService {
   }
 
   /**
-   * 일정을 만드는 유일한 갈래. **`itinerary`가 만들어지는 지점도 여기 하나다** —
-   * 그래서 planStatus의 단일 진실 원천이 유지된다.
+   * 일정 요청을 받아 **일정에 넣을 후보 장소까지** 찾는다.
    *
-   * 요청의 일정을 보지 않는다. 목적지를 알아들으면 새 일정을, 못 알아들으면
-   * null을 낸다(게이트 1 Q4). buildPlanReply가 같은 값에서 문구를 만들므로
-   * "일정은 null인데 준비됐다고 말하는" 조합이 표현 불가능하다.
+   * itinerary가 항상 null이다. 앞 단계(구조화 → 임베딩 → 검색 → 조회)는
+   * replyRecommend와 완전히 같고, 갈리는 것은 마지막 하나뿐이다 — 찾은 장소를
+   * **day별로 배치하는 조립이 아직 없다.** 조립 없이 채울 수 있는 itinerary는
+   * 지어낸 일정뿐이고, 틀린 일정을 자신 있게 보여주는 것이 아무것도 보여주지
+   * 않는 것보다 나쁘다. 그래서 planStatus는 이 갈래에서도 'none'이다.
    *
-   * TODO: 일정 생성(TEI 임베딩 + Qdrant 검색 + 조립)이 들어올 자리.
-   * buildMockItinerary 호출 하나만 교체된다. 지금 돌려주는 것은 목적지 키워드로
-   * 고른 고정 데이터이고 **생성이 아니다.**
+   * TODO: 조립이 들어올 자리. 찾은 장소를 day·시간·핀 번호에 배치해
+   * ItineraryDto를 만들면 buildChatResponse의 두 번째 인자만 바뀌고,
+   * PLAN_NOT_ASSEMBLED_NOTE와 그것을 잇는 자리가 함께 사라진다.
    *
-   * QueryStructurer를 부르지 않는다 — 목적지를 원문 키워드로 고르므로 구조화
-   * 결과를 아무도 쓰지 않는다. 부르면 결과를 버리는 Gemini 왕복이 하나 늘고,
-   * 그 왕복의 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다.
+   * RecommendResponder를 부르지 않는다 — 이 갈래의 문장은 전부 결정론적이다.
+   * 모델에게 소개를 받아도 실을 자리가 없고, 결과를 버리는 왕복의 쿼터 소진이
+   * 돌려줄 수 있었던 요청을 503으로 만든다(embedQueryText와 같은 규칙).
    */
-  private replyPlan(request: ChatRequestDto): ChatResponseDto {
-    const itinerary = buildMockItinerary(request.message);
+  private async replyPlan(request: ChatRequestDto): Promise<ChatResponseDto> {
+    const query = await this.queryStructurer.structure(request.message);
+    const embedding = await this.embedQueryText(query.queryText);
+    // null을 빈 배열로 접지 않는다 — replyRecommend와 같은 이유다. 검색을 못 한
+    // 것과 검색 결과가 없는 것은 사용자에게 다른 사실이다.
+    const places =
+      embedding === null ? null : await this.searchPlaces(embedding);
 
-    return buildChatResponse(buildPlanReply(itinerary), itinerary);
+    return buildChatResponse(
+      buildPlanReply(query, places?.map((place) => place.title) ?? null),
+      null,
+    );
   }
 
   /**
@@ -188,7 +202,7 @@ export class ChatService {
    */
   private async searchPlaces(embedding: number[]): Promise<TourContent[]> {
     const hits = await this.qdrant.search(embedding, {
-      limit: RECOMMEND_SEARCH_LIMIT,
+      limit: PLACE_SEARCH_LIMIT,
     });
 
     this.logger.debug(`장소 검색 완료: hit=${hits.length}`);
@@ -213,7 +227,7 @@ export class ChatService {
    * MaxLength와 같은 판단). 정상 경로의 queryText에는 라벨이 붙으므로
    * 이 분기는 폴백 전용이다.
    *
-   * 실패는 삼키지 않는다 — 협력자 다섯에 같은 규칙이 걸린다.
+   * 실패는 삼키지 않는다 — 협력자 일곱에 같은 규칙이 걸린다.
    *
    * 건너뛴 요청은 null을 받는다. 호출자가 그 요청을 검색 없이 처리해야 하기
    * 때문이다 — 빈 배열을 벡터로 지어 넘기면 질의와 아무 관계 없는 이웃이

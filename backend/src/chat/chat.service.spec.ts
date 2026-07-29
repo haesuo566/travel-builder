@@ -15,11 +15,12 @@ import type { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatIntent } from './intent/chat-intent';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OtherResponder } from './other/other.responder';
-import { buildMockItinerary } from './plan/mock-itineraries';
 import {
-  buildPlanReply,
-  PLAN_DESTINATION_UNKNOWN_REPLY,
-  PLAN_READY_GUIDE,
+  PLAN_NO_HITS_TAIL,
+  PLAN_NOT_ASSEMBLED_NOTE,
+  PLAN_NOT_SEARCHED_TAIL,
+  PLAN_PLACES_HEAD,
+  PLAN_REPLY_HEAD,
 } from './plan/plan-reply';
 import {
   buildPlacesTail,
@@ -129,15 +130,12 @@ const STRUCTURED: StructuredQuery = {
 const OTHER_RESPONSE =
   '제주는 사계절 모두 좋아요. 어느 계절을 생각하고 계신가요?';
 
-/** 목적지 키워드가 걸리는 메시지. mock 일정의 목적지는 제주다. */
+/** 일정 갈래로 분류되는 메시지. 목적지는 구조화 결과가 정한다. */
 const PLAN_MESSAGE = '제주 2박3일 일정 짜줘';
 
-/** 목적지 키워드가 하나도 걸리지 않는 일정 요청. */
-const PLAN_MESSAGE_WITHOUT_DESTINATION = '일정 짜줘';
-
 /**
- * 요청에 실려 오는 일정. 목적지를 강릉으로 둔다 — mock 일정 셋(서울·부산·제주)과
- * 겹치면 "요청을 되돌려줬는가"와 "새로 만들었는가"가 목적지로 구별되지 않는다.
+ * 요청에 실려 오는 일정. 목적지를 강릉으로 둔다 — 응답에 실린 값과 겹치면
+ * "요청을 되돌려줬는가"가 목적지로 구별되지 않는다.
  *
  * 호출마다 새 리터럴을 만든다. 모듈 상수를 공유하면 참조 동일성 단정이 통과
  * 근거를 잃는다.
@@ -248,97 +246,49 @@ afterEach(() => {
 });
 
 describe('ChatService — 갈래별 planStatus와 itinerary', () => {
-  it('plan_itinerary는 목적지를 알아들으면 새 일정을 ready로 돌려준다', async () => {
-    classify.mockResolvedValue('plan_itinerary');
-    const service = await createService();
-
-    const response = await service.chat(
-      createRequestWithoutItinerary(PLAN_MESSAGE),
-    );
-
-    expect(response.planStatus).toBe('ready');
-    expect(response.itinerary?.summary.destination).toBe('제주');
-    expect(response.itinerary?.days).toHaveLength(3);
-  });
-
-  it('↔ 짝: recommend_places는 같은 요청에서 none이다', async () => {
-    // 위 케이스와 요청이 완전히 같고 분류값만 다르다. 두 갈래의 case 핸들러가
-    // 뒤바뀌면 이 짝이 잡는다 — 과거에 정확히 그 뒤바뀜이 미커밋 상태로 있었고,
-    // 갈래별 응답이 없어서 테스트가 초록불이었다.
-    classify.mockResolvedValue('recommend_places');
-    const service = await createService();
-
-    const response = await service.chat(
-      createRequestWithoutItinerary(PLAN_MESSAGE),
-    );
-
-    expect(response.planStatus).toBe('none');
-    expect(response.itinerary).toBeNull();
-  });
-
-  it('plan_itinerary는 목적지를 못 알아들으면 none이다', async () => {
-    // 기본 목적지로 폴백하지 않는다(게이트 1 Q4). 같은 intent가 메시지에 따라
-    // ready/none으로 갈리며, 판정 입력은 (intent, 목적지 매칭 여부) 둘이고
-    // 둘 다 Gemini 추가 호출 없이 결정론적이다.
-    classify.mockResolvedValue('plan_itinerary');
-    const service = await createService();
-
-    const response = await service.chat(
-      createRequestWithoutItinerary(PLAN_MESSAGE_WITHOUT_DESTINATION),
-    );
-
-    expect(response.planStatus).toBe('none');
-    expect(response.itinerary).toBeNull();
-  });
-
-  it('other는 none이다', async () => {
-    classify.mockResolvedValue('other');
-    const service = await createService();
-
-    const response = await service.chat(createRequestWithoutItinerary('안녕'));
-
-    expect(response.planStatus).toBe('none');
-    expect(response.itinerary).toBeNull();
-  });
-
   const allIntents: ChatIntent[] = [
     'plan_itinerary',
     'recommend_places',
     'other',
   ];
 
+  it.each(allIntents)('%s는 none이다', async (intent) => {
+    // 세 갈래 전부가 none이다. plan 갈래는 장소까지만 찾고 조립하지 않으므로
+    // 만들 수 있는 일정이 없다 — 여기서 ready가 나오면 itinerary가 채워졌다는
+    // 뜻이고, 조립 없이 채울 수 있는 것은 지어낸 일정뿐이다.
+    classify.mockResolvedValue(intent);
+    const service = await createService();
+
+    const response = await service.chat(
+      createRequestWithoutItinerary(PLAN_MESSAGE),
+    );
+
+    expect(response.planStatus).toBe('none');
+    expect(response.itinerary).toBeNull();
+  });
+
   it.each(allIntents)(
     '%s는 요청의 일정을 응답에 싣지 않는다',
     async (intent) => {
       // 게이트 1 Q3의 결정이다. 요청에 강릉 일정을 실어 보내도 응답에 강릉이
-      // 나타나지 않는다 — plan 갈래는 자기가 만든 일정을, 나머지 둘은 null을 낸다.
-      // 이 단정이 없으면 어느 갈래가 요청을 되돌려주기 시작해도 아무도 모르고,
-      // planStatus를 만드는 지점이 조용히 둘로 늘어난다.
+      // 나타나지 않는다. 이 단정이 없으면 어느 갈래가 요청을 되돌려주기
+      // 시작해도 아무도 모르고, planStatus를 만드는 지점이 조용히 둘로 늘어난다.
       classify.mockResolvedValue(intent);
       const service = await createService();
       const request = createRequest(PLAN_MESSAGE);
 
       const response = await service.chat(request);
 
-      expect(response.itinerary).not.toBe(request.itinerary);
-      expect(response.itinerary?.summary.destination).not.toBe('강릉');
+      expect(response.itinerary).toBeNull();
+      expect(JSON.stringify(response)).not.toContain('강릉');
     },
   );
-
-  it('plan_itinerary는 요청에 일정이 있어도 자기가 만든 일정을 낸다', async () => {
-    // ↔ 위 짝의 긍정형. "요청 일정이 아니다"만으로는 null을 내는 구현도 통과한다.
-    classify.mockResolvedValue('plan_itinerary');
-    const service = await createService();
-
-    const response = await service.chat(createRequest(PLAN_MESSAGE));
-
-    expect(response.planStatus).toBe('ready');
-    expect(response.itinerary?.summary.destination).toBe('제주');
-  });
 });
 
 describe('ChatService — 갈래별 reply', () => {
-  it('plan_itinerary는 준비된 일정을 알리는 문장을 돌려준다', async () => {
+  it('plan_itinerary는 구조화 결과와 찾은 장소를 되비춘 문장을 돌려준다', async () => {
+    // 전문 등가로 고정한다. 서식 자체는 plan/plan-reply.spec.ts가 보고, 여기서
+    // 세는 것은 "구조화 결과와 Postgres 이름이 실제로 문장까지 도달했는가"다.
     classify.mockResolvedValue('plan_itinerary');
     const service = await createService();
 
@@ -347,24 +297,73 @@ describe('ChatService — 갈래별 reply', () => {
     );
 
     expect(response.reply).toBe(
-      buildPlanReply(buildMockItinerary(PLAN_MESSAGE)),
+      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} 한라산, 마라도 ${PLAN_NOT_ASSEMBLED_NOTE}`,
     );
-    // 위 단정만으로는 두 함수가 함께 망가져도 통과한다. 문장에 목적지와
-    // 맺음말이 실제로 실렸는지 따로 센다.
-    expect(response.reply).toContain('제주');
-    expect(response.reply).toContain(PLAN_READY_GUIDE);
   });
 
-  it('plan_itinerary는 목적지를 못 알아들으면 무엇을 알려달라고 말한다', async () => {
-    // none이면서 아무 설명이 없으면 사용자는 서비스가 고장난 것과 구별할 수 없다.
+  it('plan_itinerary는 일정을 짜지 못한다는 사실을 함께 말한다', async () => {
+    // 이 갈래는 항상 none을 낸다. 설명 없이 패널이 뜨지 않으면 사용자는
+    // 서비스가 고장난 것과 구별할 수 없다 — 그 유일한 단서가 이 문장이다.
     classify.mockResolvedValue('plan_itinerary');
     const service = await createService();
 
     const response = await service.chat(
-      createRequestWithoutItinerary(PLAN_MESSAGE_WITHOUT_DESTINATION),
+      createRequestWithoutItinerary(PLAN_MESSAGE),
     );
 
-    expect(response.reply).toBe(PLAN_DESTINATION_UNKNOWN_REPLY);
+    expect(response.reply).toContain(PLAN_NOT_ASSEMBLED_NOTE);
+  });
+
+  it('↔ 짝: plan_itinerary와 recommend_places는 같은 요청에 다른 문구를 낸다', async () => {
+    // 두 갈래가 이제 같은 파이프라인을 타므로 planStatus로는 구별되지 않는다
+    // (둘 다 none이다). case 핸들러가 뒤바뀌었을 때 그것을 잡는 단서가 문구
+    // 하나로 좁혀졌다 — 과거에 정확히 그 뒤바뀜이 미커밋 상태로 있었다.
+    classify.mockResolvedValue('plan_itinerary');
+    const plan = await (
+      await createService()
+    ).chat(createRequestWithoutItinerary(PLAN_MESSAGE));
+
+    classify.mockResolvedValue('recommend_places');
+    const recommend = await (
+      await createService()
+    ).chat(createRequestWithoutItinerary(PLAN_MESSAGE));
+
+    expect(plan.reply).not.toBe(recommend.reply);
+    expect(plan.reply).toContain(PLAN_REPLY_HEAD);
+    expect(recommend.reply).not.toContain(PLAN_REPLY_HEAD);
+  });
+
+  it('plan_itinerary는 장소를 못 찾으면 찾지 못했다고 말한다', async () => {
+    // 조건은 알아들었는데 검색이 0건인 경우다. 장소 목록 자리가 조용히 비면
+    // 사용자는 무엇이 없는 것인지 알 수 없다.
+    classify.mockResolvedValue('plan_itinerary');
+    search.mockResolvedValue([]);
+    const service = await createService();
+
+    const response = await service.chat(
+      createRequestWithoutItinerary(PLAN_MESSAGE),
+    );
+
+    expect(response.reply).toContain(PLAN_NO_HITS_TAIL);
+    expect(response.reply).not.toContain(PLAN_NOT_SEARCHED_TAIL);
+  });
+
+  it('↔ 짝: plan_itinerary도 검색을 못 하면 0건과 다른 문구를 받는다', async () => {
+    // 구조화가 폴백해 질의가 비면 검색 자체를 못 한다. 0건과 뭉개면 사용자가
+    // 조건을 아무리 고쳐도 같은 답을 받는다(recommend 갈래와 같은 경계).
+    classify.mockResolvedValue('plan_itinerary');
+    structure.mockResolvedValue({
+      queryText: '   ',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    const response = await service.chat(createRequestWithoutItinerary('   '));
+
+    expect(response.reply).toContain(PLAN_NOT_SEARCHED_TAIL);
+    expect(response.reply).not.toContain(PLAN_NO_HITS_TAIL);
   });
 
   it('recommend_places는 구조화 결과를 되비춘 문장을 돌려준다', async () => {
@@ -412,14 +411,26 @@ describe('ChatService — 구조화 위임', () => {
     expect(structure).toHaveBeenCalledWith('제주 가족여행 관광지 추천');
   });
 
-  const nonStructuringIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+  it('plan_itinerary도 QueryStructurer를 message만으로 한 번 호출한다', async () => {
+    // 두 갈래가 같은 파이프라인을 공유한다. 이 갈래가 구조화를 건너뛰면
+    // 검색할 질의를 원문 키워드로 지어내게 되고, core가 색인한 의미 축과
+    // 다른 공간에서 검색이 돈다.
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 가족여행 일정 짜줘'));
+
+    expect(structure).toHaveBeenCalledTimes(1);
+    expect(structure).toHaveBeenCalledWith('제주 가족여행 일정 짜줘');
+  });
+
+  const nonStructuringIntents: ChatIntent[] = ['other'];
 
   it.each(nonStructuringIntents)(
     '↔ 짝: %s는 QueryStructurer를 호출하지 않는다',
     async (intent) => {
-      // plan 갈래는 목적지를 원문 키워드로 고르므로 구조화 결과를 쓰지 않는다.
-      // 부르면 결과를 버리는 Gemini 왕복이 하나 늘고, 그 왕복의 쿼터 소진이
-      // 돌려줄 수 있었던 요청을 503으로 만든다.
+      // 대화 갈래에는 구조화할 질의가 없다. 부르면 결과를 버리는 Gemini 왕복이
+      // 하나 늘고, 그 왕복의 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다.
       classify.mockResolvedValue(intent);
       const service = await createService();
 
@@ -454,7 +465,17 @@ describe('ChatService — 질의 임베딩', () => {
     expect(firstMessage(debugLog)).toContain(`차원=${EMBEDDING.length}`);
   });
 
-  const nonEmbeddingIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+  it('plan_itinerary도 재조립된 queryText로 임베딩을 한 번 만든다', async () => {
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    await service.chat(createRequest(PLAN_MESSAGE));
+
+    expect(embedQuery).toHaveBeenCalledTimes(1);
+    expect(embedQuery).toHaveBeenCalledWith(STRUCTURED.queryText);
+  });
+
+  const nonEmbeddingIntents: ChatIntent[] = ['other'];
 
   it.each(nonEmbeddingIntents)(
     '↔ 짝: %s는 임베딩하지 않는다',
@@ -599,7 +620,21 @@ describe('ChatService — 장소 검색', () => {
     expect(search).toHaveBeenCalledTimes(1);
   });
 
-  const nonSearchingIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+  it('plan_itinerary도 임베딩 벡터로 Qdrant를 한 번 검색한다', async () => {
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    await service.chat(createRequest(PLAN_MESSAGE));
+
+    expect(search).toHaveBeenCalledTimes(1);
+    const [vector, opts] = search.mock.calls[0];
+    expect(vector).toBe(EMBEDDING);
+    // 개수도 recommend와 같은 10이다. 두 갈래가 같은 상수를 공유하는지 센다 —
+    // 갈리면 같은 질의가 갈래에 따라 다른 수의 장소를 받는다.
+    expect(opts?.limit).toBe(10);
+  });
+
+  const nonSearchingIntents: ChatIntent[] = ['other'];
 
   it.each(nonSearchingIntents)('↔ 짝: %s는 검색하지 않는다', async (intent) => {
     // 임베딩하지 않는 갈래에는 검색할 벡터가 없다. 부르면 결과를 버리는
@@ -725,7 +760,24 @@ describe('ChatService — 장소 상세 조회', () => {
     expect(response.reply).not.toContain(RECOMMEND_NOT_SEARCHED_TAIL);
   });
 
-  const nonLookingUpIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+  it('plan_itinerary도 hit의 contentid를 관련도 순서 그대로 조회한다', async () => {
+    // 이 갈래도 Postgres가 장소의 단일 진실 원천이다. 조회를 건너뛰고 payload를
+    // 쓰면 화면에 색인 시점의 옛 이름이 나간다.
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    const response = await service.chat(createRequest(PLAN_MESSAGE));
+
+    expect(findByIds).toHaveBeenCalledTimes(1);
+    const [contentids] = findByIds.mock.calls[0];
+    expect(contentids).toEqual(['content-성산일출봉', 'content-우도']);
+    // 조회 결과가 문구까지 도달하는지 함께 센다. 부정 단정이 없으면 조회를
+    // 통째로 지우고 payload.title로 되돌려도 통과한다.
+    expect(response.reply).toContain('한라산');
+    expect(response.reply).not.toContain('성산일출봉');
+  });
+
+  const nonLookingUpIntents: ChatIntent[] = ['other'];
 
   it.each(nonLookingUpIntents)(
     '↔ 짝: %s는 tour_contents를 조회하지 않는다',
@@ -889,6 +941,9 @@ describe('ChatService — 장소 소개 위임', () => {
   it.each(nonDescribingIntents)(
     '↔ 짝: %s는 장소를 소개하지 않는다',
     async (intent) => {
+      // plan 갈래가 recommend와 갈리는 유일한 협력자다. 구조화·임베딩·검색·조회는
+      // 공유하지만 소개는 부르지 않는다 — 이 갈래가 돌려주는 문장은 전부
+      // 결정론적이며, 모델에게 문장을 받아도 그것을 실을 자리가 없다.
       classify.mockResolvedValue(intent);
       const service = await createService();
 
@@ -897,6 +952,20 @@ describe('ChatService — 장소 소개 위임', () => {
       expect(describePlaces).not.toHaveBeenCalled();
     },
   );
+
+  it('plan_itinerary는 장소를 찾아도 Gemini를 부르지 않는다', async () => {
+    // ↔ 위 짝의 강화형. 위 케이스는 검색이 0건이어도 통과하므로, 소개할 장소가
+    // 실제로 있는 상태에서도 부르지 않는지 따로 센다. 부르면 결과를 버리는
+    // 왕복이 하나 늘고 그 쿼터 소진이 돌려줄 수 있었던 요청을 503으로 만든다.
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    const response = await service.chat(createRequest(PLAN_MESSAGE));
+
+    expect(findByIds).toHaveBeenCalledTimes(1);
+    expect(response.reply).toContain('한라산');
+    expect(describePlaces).not.toHaveBeenCalled();
+  });
 });
 
 describe('ChatService — 대화 위임', () => {
@@ -1008,6 +1077,21 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
     const service = await createService();
 
     await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(
+      failure,
+    );
+  });
+
+  it('plan_itinerary 갈래도 협력자 실패를 삼키지 않는다', async () => {
+    // 위 케이스들은 전부 recommend 갈래로 센다. plan이 같은 협력자를 공유하게
+    // 됐으므로 형제 갈래에 같은 계약이 있어야 한다 — replyPlan에만 try/catch가
+    // 들어가면 이 테스트 없이는 아무도 모르고, TEI 장애가 200 + "장소를 찾지
+    // 못했어요"로 둔갑해 사용자가 자기 조건을 고치려 든다.
+    const failure = new ExternalServiceError('tei', 'unavailable', '연결 실패');
+    classify.mockResolvedValue('plan_itinerary');
+    embedQuery.mockRejectedValue(failure);
+    const service = await createService();
+
+    await expect(service.chat(createRequest(PLAN_MESSAGE))).rejects.toBe(
       failure,
     );
   });

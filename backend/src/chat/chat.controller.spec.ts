@@ -25,8 +25,10 @@ import { IntentClassifier } from './intent/intent.classifier';
 import { OTHER_REPLY } from './other/other-prompt';
 import { OtherResponder } from './other/other.responder';
 import {
-  PLAN_DESTINATION_UNKNOWN_REPLY,
-  PLAN_READY_GUIDE,
+  PLAN_NOT_ASSEMBLED_NOTE,
+  PLAN_NOT_SEARCHED_TAIL,
+  PLAN_PLACES_HEAD,
+  PLAN_REPLY_HEAD,
 } from './plan/plan-reply';
 import {
   buildPlacesTail,
@@ -432,20 +434,18 @@ describe('ChatController', () => {
 
       const response = await request(app.getHttpServer())
         .post('/chat')
-        // 목적지 키워드가 걸리는 메시지여야 한다. plan 갈래가 목적지를 못
-        // 알아들으면 준비 완료 문구가 아니라 안내 문구를 내므로, '아무 말'로는
-        // 세 갈래의 정상 문구를 대조할 수 없다.
         .send({ message: '제주 2박3일 일정 짜줘', itinerary })
         .expect(200);
 
       replies.push((response.body as ChatResponseDto).reply);
     }
 
-    expect(replies[0]).toContain(PLAN_READY_GUIDE);
+    expect(replies[0]).toContain(PLAN_REPLY_HEAD);
     expect(replies[1]).toContain(RECOMMEND_REPLY_HEAD);
     // fixture의 [조건]이 실제로 파싱돼 화면까지 실렸는지 센다. 이 줄이 없으면
     // 구조화 폴백('조건: 미지정')이 발동해도 위 단정들이 전부 통과한다.
-    // plan 갈래는 이제 구조화를 거치지 않으므로 recommend 쪽에서 센다.
+    // 두 갈래가 같은 구조화 경로를 타므로 양쪽에서 함께 센다.
+    expect(replies[0]).toContain('지역: 제주');
     expect(replies[1]).toContain('지역: 제주');
     expect(replies[2]).toBe(OTHER_RESPONSE);
     // 세 문구가 실제로 갈리는지 센다. 위 셋만으로는 두 갈래가 같은 문장이
@@ -454,11 +454,11 @@ describe('ChatController', () => {
   });
 
   it('갈래별 planStatus와 itinerary가 HTTP를 관통한다', async () => {
-    // 목적지 키워드가 걸리는 같은 메시지로 세 갈래를 태운다. plan만 ready이고
-    // 나머지 둘은 none이다 — 하위 spec이 각각 고정해도 그 합성이 HTTP를
-    // 관통하는지는 별개이며, 그 공백에서 두 갈래가 뒤바뀐 전례가 있다.
+    // 같은 메시지로 세 갈래를 태운다. 셋 다 none이다 — plan 갈래도 장소까지만
+    // 찾고 조립하지 않으므로 만들 수 있는 일정이 없다. 여기서 ready가 나오면
+    // 어딘가가 일정을 지어내고 있다는 뜻이다.
     const statuses: string[] = [];
-    const destinations: (string | undefined)[] = [];
+    const itineraries: (object | null)[] = [];
 
     for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
       mockGemini(intent, intent === 'other' ? OTHER_RESPONSE : QUERY_RESPONSE);
@@ -470,52 +470,61 @@ describe('ChatController', () => {
 
       const body = response.body as ChatResponseDto;
       statuses.push(body.planStatus);
-      destinations.push(body.itinerary?.summary.destination);
+      itineraries.push(body.itinerary);
     }
 
-    expect(statuses).toEqual(['ready', 'none', 'none']);
-    // plan 갈래만 일정을 만든다. 목적지가 실렸는지까지 봐야 빈 일정으로도
-    // ready가 통과하는 상태를 막을 수 있다.
-    expect(destinations).toEqual(['제주', undefined, undefined]);
+    expect(statuses).toEqual(['none', 'none', 'none']);
+    expect(itineraries).toEqual([null, null, null]);
   });
 
-  it('plan 갈래는 일정 내용을 채워 돌려준다', async () => {
-    // ready인데 days가 비면 프론트는 빈 패널을 띄운다. 그 상태를 200으로
-    // 통과시키지 않도록 내용을 센다.
+  it('plan 갈래는 찾은 장소를 문구에 실어 200으로 돌려준다', async () => {
+    // 구조화 → 임베딩 → 검색 → 조회가 HTTP를 관통하는지 전문 등가로 센다.
+    // 이름의 출처는 Postgres이며, 아래 부정 단정이 색인 사본과 가른다.
     mockGemini('plan_itinerary', QUERY_RESPONSE);
 
     const response = await request(app.getHttpServer())
       .post('/chat')
-      .send({ message: '부산 2박3일 일정 짜줘' })
-      .expect(200);
-
-    const body = response.body as ChatResponseDto;
-    expect(body.planStatus).toBe('ready');
-    expect(body.itinerary?.summary.destination).toBe('부산');
-    expect(body.itinerary?.days).toHaveLength(3);
-    expect(body.itinerary?.days[0].places.length).toBeGreaterThan(0);
-  });
-
-  it('plan 갈래도 목적지를 못 알아들으면 200 + none이 나간다', async () => {
-    // ↔ 위 짝. 기본 목적지로 폴백하지 않는다(게이트 1 Q4). reply까지 세는 이유는
-    // 설명 없는 none이 사용자에게 고장과 구별되지 않기 때문이다.
-    mockGemini('plan_itinerary', QUERY_RESPONSE);
-
-    const response = await request(app.getHttpServer())
-      .post('/chat')
-      .send({ message: '일정 짜줘' })
+      .send({ message: '제주 2박3일 일정 짜줘' })
       .expect(200);
 
     const body = response.body as ChatResponseDto;
     expect(body.planStatus).toBe('none');
-    expect(body.itinerary).toBeNull();
-    expect(body.reply).toBe(PLAN_DESTINATION_UNKNOWN_REPLY);
+    expect(body.reply).toBe(
+      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} ${TOUR_ROW.title} ${PLAN_NOT_ASSEMBLED_NOTE}`,
+    );
+    expect(body.reply).not.toContain(TOUR_HIT.payload.title);
+  });
+
+  it('plan 갈래도 구조화가 폴백하면 검색하지 못했다고 말한다', async () => {
+    // ↔ 위 짝. 폴백 행은 조용하다 — 응답이 200이고 문장 틀도 정상이라 단어
+    // 하나로만 드러난다. 조건 요약이 미지정으로 바뀌고 맺음말이 갈리는 것을
+    // HTTP에서 함께 센다.
+    mockGemini('plan_itinerary', '질의를 만들 수 없습니다.');
+    // 실제 TeiClient의 계약을 그대로 흉내낸다 — 빈 질의는 네트워크를 타기 전에
+    // 거절한다. 기본 mock으로 두면 방어가 사라져도 통과한다.
+    embedQuery.mockImplementation((text) =>
+      text.trim() === ''
+        ? Promise.reject(
+            new ExternalServiceError('tei', 'invalid-request', '빈 질의'),
+          )
+        : Promise.resolve([0.1, 0.2, 0.3]),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '   ' })
+      .expect(200);
+
+    const { reply } = response.body as ChatResponseDto;
+    expect(reply).toContain(NO_CONDITIONS_SUMMARY);
+    expect(reply).toContain(PLAN_NOT_SEARCHED_TAIL);
+    expect(search).not.toHaveBeenCalled();
   });
 
   it('요청에 실어 보낸 일정은 어느 갈래에서도 응답에 나타나지 않는다', async () => {
-    // 게이트 1 Q3의 결정이 HTTP를 관통하는지 센다. 강릉은 mock 일정 셋에 없으므로
-    // 응답 어디에도 나타나지 않아야 한다 — 나타나면 어느 갈래가 요청을
-    // 되돌려주고 있고, planStatus를 만드는 지점이 둘로 늘어난 것이다.
+    // 게이트 1 Q3의 결정이 HTTP를 관통하는지 센다. 강릉은 어느 갈래도 만들지
+    // 않는 목적지이므로 응답 어디에도 나타나지 않아야 한다 — 나타나면 어느
+    // 갈래가 요청을 되돌려주고 있고, planStatus를 만드는 지점이 둘로 늘어난 것이다.
     const itinerary = createItinerary();
     itinerary.summary.destination = '강릉';
 
@@ -531,10 +540,10 @@ describe('ChatController', () => {
     }
   });
 
-  it('plan 갈래는 gemini를 분류 1회만 호출한다', async () => {
-    // ↔ 'message가 1000자면 …' 케이스(other 갈래 2회)의 짝이다. 목적지를 원문
-    // 키워드로 고르므로 구조화 왕복이 없다 — 결과를 버리는 왕복이 되살아나면
-    // 여기가 깨진다.
+  it('plan 갈래는 gemini를 두 번 호출한다', async () => {
+    // 분류 1회 + 구조화 1회다. recommend 갈래 3회와 갈리는 지점이 소개 왕복
+    // 하나이며, 그것이 이 갈래에 되살아나면 여기가 깨진다 — 이 갈래는 모델의
+    // 자유 텍스트를 실을 자리가 없으므로 그 왕복은 통째로 낭비다.
     mockGemini('plan_itinerary', QUERY_RESPONSE);
 
     await request(app.getHttpServer())
@@ -542,7 +551,8 @@ describe('ChatController', () => {
       .send({ message: '제주 2박3일 일정 짜줘' })
       .expect(200);
 
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(recommendPrompt()).toBeUndefined();
   });
 
   it('분류를 해석할 수 없으면 200 + other 갈래 응답이 나간다', async () => {
@@ -574,7 +584,7 @@ describe('ChatController', () => {
   it('질의 구조화에 실패하면 200 + 조건 미지정 요약이 나간다', async () => {
     // ↔ 위 짝. 구조화 폴백도 HTTP까지 관통한다. 사용자 원문은 queryText로
     // 폴백되지만 화면에는 절대 나가지 않는다 — 그 경계가 여기서 고정된다.
-    // 구조화를 거치는 갈래가 recommend_places 하나로 좁혀졌다.
+    // plan 갈래의 같은 폴백은 위 'plan 갈래도 구조화가 폴백하면 …'이 센다.
     mockGemini('recommend_places', '[조건]\n지역: 제주');
 
     const response = await request(app.getHttpServer())
