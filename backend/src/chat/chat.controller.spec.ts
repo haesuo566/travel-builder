@@ -1,6 +1,7 @@
-import { INestApplication, Logger } from '@nestjs/common';
+import { INestApplication, Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
@@ -14,6 +15,9 @@ import type {
 } from '../clients/qdrant/qdrant.client';
 import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
+import { DatabaseModule } from '../database/database.module';
+import { TourContent } from '../database/entities';
+import { TourContentLookup } from '../database/tour-content.lookup';
 import { ChatModule } from './chat.module';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { INTENT_SYSTEM_INSTRUCTION } from './intent/intent-prompt';
@@ -105,6 +109,45 @@ const TOUR_HIT: TourSearchHit = {
   },
 };
 
+/**
+ * tour_contents 조회. Qdrant hit의 contentid로 Postgres를 다시 읽는 경로다.
+ *
+ * TourContentLookup 자체를 mock 값으로 갈지 않고 **실물에 리포지토리만 모킹해
+ * 넣는다** — 그래야 @InjectRepository 배선과 순서 재정렬이 HTTP까지 실제로
+ * 도는지 확인할 수 있고, 아래 협력자 단정도 toBeInstanceOf로 셀 수 있다.
+ */
+const find = jest.fn<Promise<TourContent[]>, [unknown]>();
+
+/**
+ * TOUR_HIT에 대응하는 Postgres 행. **제목을 payload.title과 다른 단어로 둔다** —
+ * 같으면 화면에 실린 이름의 출처가 색인 사본인지 DB인지 구별되지 않는다.
+ */
+function createRow(): TourContent {
+  const row = new TourContent();
+  row.contentid = '126508';
+  row.title = '한라산';
+  return row;
+}
+
+const TOUR_ROW = createRow();
+
+/**
+ * 실제 Postgres를 대신한다. DatabaseModule을 그대로 두면 TypeORM이 **첫 쿼리가
+ * 아니라 app.init() 시점에** 연결하므로, 어떤 라우트를 때리든 상관없이 이 spec이
+ * 실제 DB로 나간다(실측: ENV에 DATABASE_URL이 없어 getOrThrow가 던졌다).
+ *
+ * 리포지토리 프로바이더만 갈아서는 부족하다 — forRootAsync가 만드는 DataSource가
+ * 독립적으로 초기화되며 연결한다. 그래서 모듈을 통째로 바꾼다.
+ */
+@Module({
+  providers: [
+    TourContentLookup,
+    { provide: getRepositoryToken(TourContent), useValue: { find } },
+  ],
+  exports: [TourContentLookup],
+})
+class FakeDatabaseModule {}
+
 /** 파싱에 성공하는 구조화 응답. 조건 하나만 담아 요약이 '미지정'이 되지 않게 한다. */
 const QUERY_RESPONSE = [
   '[조건]',
@@ -144,6 +187,9 @@ const ENV = {
   GEMINI_API_KEY: 'test-key',
   TEI_BASE_URL: 'http://tei.test:8080',
   QDRANT_URL: 'http://qdrant.test:6333',
+  // DatabaseModule의 useFactory가 getOrThrow하므로 FakeDatabaseModule로 갈아도
+  // 이 키가 없으면 ConfigModule 단계에서 죽는다. 값은 도달하지 않는다.
+  DATABASE_URL: 'postgres://test:test@db.test:5432/test',
 };
 
 describe('ChatController', () => {
@@ -156,6 +202,7 @@ describe('ChatController', () => {
     mockGemini('other', OTHER_RESPONSE);
     embedQuery.mockReset().mockResolvedValue([0.1, 0.2, 0.3]);
     search.mockReset().mockResolvedValue([TOUR_HIT]);
+    find.mockReset().mockResolvedValue([TOUR_ROW]);
     // 폴백 경로를 도는 테스트가 있어 스파이를 걸지 않으면 콘솔이 WARN으로 덮인다.
     jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     jest.spyOn(Logger.prototype, 'debug').mockImplementation();
@@ -176,6 +223,8 @@ describe('ChatController', () => {
       .useValue({ embedQuery })
       .overrideProvider(QdrantSearchClient)
       .useValue({ search })
+      .overrideModule(DatabaseModule)
+      .useModule(FakeDatabaseModule)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -193,8 +242,9 @@ describe('ChatController', () => {
     jest.restoreAllMocks();
   });
 
-  it('ChatModule이 다섯 협력자와 Gemini 주입 경로를 제공한다', async () => {
-    // ClientsModule import가 사라지면 이 요청 자체가 부팅 단계에서 죽는다.
+  it('ChatModule이 여섯 협력자와 Gemini 주입 경로를 제공한다', async () => {
+    // ClientsModule·DatabaseModule import가 사라지면 이 요청 자체가 부팅
+    // 단계에서 죽는다.
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -207,10 +257,12 @@ describe('ChatController', () => {
     })
       .overrideProvider(GeminiClient)
       .useValue({ generate })
+      .overrideModule(DatabaseModule)
+      .useModule(FakeDatabaseModule)
       .compile();
 
-    // 다섯을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
-    // 단계에서 죽으므로, 제목이 말하는 "다섯 협력자"를 여기서 그대로 단정한다.
+    // 여섯을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
+    // 단계에서 죽으므로, 제목이 말하는 "여섯 협력자"를 여기서 그대로 단정한다.
     expect(moduleFixture.get(IntentClassifier)).toBeInstanceOf(
       IntentClassifier,
     );
@@ -222,6 +274,12 @@ describe('ChatController', () => {
     expect(moduleFixture.get(TeiClient)).toBeInstanceOf(TeiClient);
     expect(moduleFixture.get(QdrantSearchClient)).toBeInstanceOf(
       QdrantSearchClient,
+    );
+    // 여섯째는 DatabaseModule이 export한다. FakeDatabaseModule로 갈아도 실물
+    // 클래스를 등록하므로, export가 끊기거나 @InjectRepository가 어긋나면 여기서
+    // 잡힌다 — 네트워크만 빠지고 DI 배선은 그대로 확인된다.
+    expect(moduleFixture.get(TourContentLookup)).toBeInstanceOf(
+      TourContentLookup,
     );
   });
 
@@ -484,15 +542,15 @@ describe('ChatController', () => {
 
     const { reply } = response.body as ChatResponseDto;
     expect(reply).toBe(
-      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_PLACES_HEAD} ${TOUR_HIT.payload.title}`,
+      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_PLACES_HEAD} ${TOUR_ROW.title}`,
     );
     expect(reply).not.toContain('제주 관광지 추천');
   });
 
   it('검색된 장소 이름이 HTTP를 관통한다', async () => {
     // 문구 조립은 query-reply.spec.ts가 고정하지만, 그 이름이 실제로 Qdrant
-    // 응답에서 와서 HTTP 본문까지 도달하는지는 별개다. 서비스가 검색 결과를
-    // 버리고 조건 요약만 내보내도 하위 spec은 전부 초록불이다.
+    // 검색 → Postgres 조회를 거쳐 HTTP 본문까지 도달하는지는 별개다. 서비스가
+    // 검색 결과를 버리고 조건 요약만 내보내도 하위 spec은 전부 초록불이다.
     mockGemini('recommend_places', QUERY_RESPONSE);
     search.mockResolvedValue([TOUR_HIT]);
 
@@ -503,7 +561,54 @@ describe('ChatController', () => {
 
     const { reply } = response.body as ChatResponseDto;
     expect(reply).toContain('지역: 제주');
-    expect(reply).toContain(TOUR_HIT.payload.title);
+    // 이름의 출처가 Postgres인지 색인 사본인지를 두 단정으로 가른다. 긍정만
+    // 두면 조회를 지우고 payload.title로 되돌려도 통과한다.
+    expect(reply).toContain(TOUR_ROW.title);
+    expect(reply).not.toContain(TOUR_HIT.payload.title);
+  });
+
+  it('hit의 contentid로 tour_contents를 조회한다', async () => {
+    // Qdrant가 정하는 것은 어떤 장소를 어떤 순서로 보여줄지이고, 그 장소가
+    // 무엇인지는 Postgres가 정한다. 조회에 넘어가는 값이 payload의 contentid가
+    // 아니면 엉뚱한 행을 읽고도 응답은 정상 200이다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockResolvedValue([TOUR_HIT]);
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    expect(find).toHaveBeenCalledTimes(1);
+  });
+
+  it('hit이 0건이면 tour_contents를 조회하지 않는다', async () => {
+    // ↔ 위 짝. 조회할 contentid가 없는데 왕복이 나가면 요청마다 빈 쿼리가
+    // 하나씩 늘어난다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockResolvedValue([]);
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it('DB 조회가 실패하면 500이 나간다', async () => {
+    // TypeORM 오류는 ExternalServiceError가 아니라 전역 필터를 타지 않는다 —
+    // Nest 기본 처리로 500이 된다. 여기서 삼키면 DB 장애가 200 + "장소를 찾지
+    // 못했어요"가 되어 프론트가 재시도 안내를 띄울 근거를 잃는다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    find.mockRejectedValue(new Error('Connection terminated unexpectedly'));
+    // 500 경로는 Nest가 스택을 error로 찍는다. 스파이가 없으면 콘솔이 덮인다.
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+    await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(500);
   });
 
   it('hit이 0건이면 200 + 못 찾았다는 문구가 나간다', async () => {

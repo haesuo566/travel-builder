@@ -12,7 +12,11 @@
  * 키를 더할 때는 src/config/env.validation.ts의 REQUIRED_KEYS와 .env.example을
  * 함께 본다.
  */
-process.env.DATABASE_URL ??= 'postgres://e2e:e2e@127.0.0.1:5432/e2e';
+// TEI·Qdrant와 같은 discard 포트(9)를 쓴다. 기본 포트(5432)로 두면 개발
+// 머신에 떠 있는 실제 Postgres에 가 닿는다 — 실측으로 확인했다(연결은 됐고
+// 인증에서 거절당했다). 자격증명이 우연히 맞는 머신에서는 e2e가 실제 DB에
+// 조용히 붙게 되므로, 실수로 나가면 즉시 실패하도록 주소를 옮긴다.
+process.env.DATABASE_URL ??= 'postgres://e2e:e2e@127.0.0.1:9/e2e';
 process.env.GEMINI_API_KEY ??= 'e2e-dummy-gemini-key';
 process.env.TEI_BASE_URL ??= 'http://127.0.0.1:9';
 process.env.QDRANT_URL ??= 'http://127.0.0.1:9';

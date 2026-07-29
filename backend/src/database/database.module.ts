@@ -8,6 +8,7 @@ import {
   TourLclsSystmCode,
   TourLdongCode,
 } from './entities';
+import { TourContentLookup } from './tour-content.lookup';
 
 /**
  * Postgres 연결. core와 같은 DATABASE_URL 하나로 접속한다.
@@ -52,6 +53,10 @@ import {
       TourLclsSystmCode,
     ]),
   ],
-  exports: [TypeOrmModule],
+  // 조회 클래스를 여기서 등록한다. 소비자가 리포지토리를 직접 주입받으면
+  // 순서 재정렬·누락 처리 같은 판단이 호출부마다 흩어진다 — ClientsModule이
+  // 세 클라이언트를 내보내는 것과 같은 모양이다.
+  providers: [TourContentLookup],
+  exports: [TypeOrmModule, TourContentLookup],
 })
 export class DatabaseModule {}

@@ -8,6 +8,8 @@ import type {
 } from '../clients/qdrant/qdrant.client';
 import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
+import { TourContent } from '../database/entities';
+import { TourContentLookup } from '../database/tour-content.lookup';
 import { ChatService } from './chat.service';
 import type { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatIntent } from './intent/chat-intent';
@@ -43,6 +45,7 @@ const search = jest.fn<
   Promise<TourSearchHit[]>,
   [number[], QdrantSearchOptions?]
 >();
+const findByIds = jest.fn<Promise<TourContent[]>, [string[]]>();
 
 /** TeiClient가 돌려주는 벡터. 차원이 로그에 실리는지 세려고 길이를 3으로 둔다. */
 const EMBEDDING = [0.1, 0.2, 0.3];
@@ -72,6 +75,27 @@ function createHit(title: string): TourSearchHit {
 
 /** 기본 검색 결과. 이름이 문구까지 도달하는지 세려고 둘을 둔다. */
 const HITS = [createHit('성산일출봉'), createHit('우도')];
+
+/**
+ * Postgres가 돌려주는 행. 이 클래스가 읽는 필드는 title 하나이므로 나머지
+ * 25개 컬럼을 채우지 않는다 — 채우면 무엇이 실제로 쓰이는지 흐려진다.
+ */
+function createRow(contentid: string, title: string): TourContent {
+  const row = new TourContent();
+  row.contentid = contentid;
+  row.title = title;
+  return row;
+}
+
+/**
+ * 두 hit에 대응하는 행. **제목을 Qdrant payload의 title과 일부러 다른 단어로
+ * 둔다** — 같거나 부분 문자열이면 화면에 실린 이름이 색인 시점의 것인지
+ * Postgres의 현재 값인지 구별되지 않고, 조회를 통째로 지워도 테스트가 통과한다.
+ */
+const ROWS = [
+  createRow('content-성산일출봉', '한라산'),
+  createRow('content-우도', '마라도'),
+];
 
 const STRUCTURED: StructuredQuery = {
   queryText: '무엇을 하는 곳: 일출 감상',
@@ -142,6 +166,7 @@ async function createService(): Promise<ChatService> {
       { provide: OtherResponder, useValue: { respond } },
       { provide: TeiClient, useValue: { embedQuery } },
       { provide: QdrantSearchClient, useValue: { search } },
+      { provide: TourContentLookup, useValue: { findByIds } },
     ],
   }).compile();
   return moduleRef.get(ChatService);
@@ -174,6 +199,18 @@ beforeEach(() => {
   respond.mockReset().mockResolvedValue(OTHER_RESPONSE);
   embedQuery.mockReset().mockResolvedValue(EMBEDDING);
   search.mockReset().mockResolvedValue(HITS);
+  // 실제 TourContentLookup의 계약을 그대로 흉내낸다 — 요청한 순서를 지키고
+  // 없는 id는 버린다. mockResolvedValue(ROWS)로 두면 검색이 0건인 요청에도
+  // 두 행이 돌아와, hit 0건 경로를 보는 기존 테스트가 거짓으로 통과한다.
+  findByIds
+    .mockReset()
+    .mockImplementation((ids) =>
+      Promise.resolve(
+        ids
+          .map((id) => ROWS.find((row) => row.contentid === id))
+          .filter((row): row is TourContent => row !== undefined),
+      ),
+    );
   // 스파이를 걸지 않으면 임베딩 갈래를 도는 테스트마다 콘솔이 로그로 덮인다.
   debugLog = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
   warnLog = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
@@ -551,14 +588,15 @@ describe('ChatService — 장소 검색', () => {
 
   it('찾은 장소 이름을 응답 문구에 싣는다', async () => {
     // 검색해 놓고 문구에 싣지 않으면 Qdrant 왕복이 통째로 낭비되고, 사용자는
-    // 검색이 돌았는지조차 알 수 없다.
+    // 검색이 돌았는지조차 알 수 없다. 이름의 출처는 Postgres다 — 그 대조는
+    // 아래 '장소 상세 조회'가 따로 센다.
     classify.mockResolvedValue('recommend_places');
     const service = await createService();
 
     const response = await service.chat(createRequest('제주 일출 명소 추천'));
 
-    expect(response.reply).toContain('성산일출봉');
-    expect(response.reply).toContain('우도');
+    expect(response.reply).toContain('한라산');
+    expect(response.reply).toContain('마라도');
   });
 
   it('hit이 0건이면 찾지 못했다고 말한다', async () => {
@@ -600,6 +638,98 @@ describe('ChatService — 장소 검색', () => {
     expect(logMessages(debugLog)).toContainEqual(
       expect.stringContaining(`hit=${HITS.length}`),
     );
+  });
+});
+
+describe('ChatService — 장소 상세 조회', () => {
+  it('hit의 contentid를 관련도 순서 그대로 한 번에 넘긴다', async () => {
+    // 순서가 곧 사용자에게 보여줄 순서다. 여기서 정렬을 잃으면 TourContentLookup이
+    // 아무리 순서를 지켜도 복원할 근거가 사라진다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(findByIds).toHaveBeenCalledTimes(1);
+    const [contentids] = findByIds.mock.calls[0];
+    expect(contentids).toEqual(['content-성산일출봉', 'content-우도']);
+  });
+
+  it('Qdrant payload의 title이 아니라 Postgres의 title을 싣는다', async () => {
+    // Qdrant payload는 색인 시점의 사본이다. 제목의 단일 진실 원천은 Postgres이며,
+    // 두 값이 갈리면 화면에 옛 이름이 나간다. 부정 단정이 없으면 조회를 통째로
+    // 지우고 payload.title로 되돌려도 위 긍정 단정이 통과한다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toContain('한라산');
+    expect(response.reply).toContain('마라도');
+    expect(response.reply).not.toContain('성산일출봉');
+    expect(response.reply).not.toContain('우도');
+  });
+
+  it('Postgres에 없는 id는 빼고 찾은 것만 싣는다', async () => {
+    // 색인과 DB 사이의 미동기화 한 건 때문에 나머지까지 사라지게 하지 않는다.
+    classify.mockResolvedValue('recommend_places');
+    findByIds.mockResolvedValue([ROWS[0]]);
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toContain('한라산');
+    expect(response.reply).not.toContain('마라도');
+    // 한 건이라도 남았으면 "찾지 못했다"가 아니다.
+    expect(response.reply).not.toContain(RECOMMEND_NO_HITS_TAIL);
+  });
+
+  it('↔ 짝: 전부 없으면 hit 0건과 같은 문구가 나간다', async () => {
+    // 사용자가 받는 사실("보여줄 장소가 없다")이 hit 0건과 같으므로 문구도 같다.
+    // 검색은 돌았는데 DB에서 전부 사라졌다는 사실은 TourContentLookup의 warn
+    // 로그에만 남는다 — 검색조차 못 한 경우(NOT_SEARCHED)와는 여전히 갈린다.
+    classify.mockResolvedValue('recommend_places');
+    findByIds.mockResolvedValue([]);
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toContain(RECOMMEND_NO_HITS_TAIL);
+    expect(response.reply).not.toContain(RECOMMEND_NOT_SEARCHED_TAIL);
+  });
+
+  const nonLookingUpIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+
+  it.each(nonLookingUpIntents)(
+    '↔ 짝: %s는 tour_contents를 조회하지 않는다',
+    async (intent) => {
+      // 검색하지 않는 갈래에는 조회할 contentid가 없다. 부르면 결과를 버리는
+      // DB 왕복이 하나 늘고, 그 왕복의 실패가 돌려줄 수 있었던 요청을 500으로
+      // 만든다(임베딩·검색 짝과 같은 이유).
+      classify.mockResolvedValue(intent);
+      const service = await createService();
+
+      await service.chat(createRequest(PLAN_MESSAGE));
+
+      expect(findByIds).not.toHaveBeenCalled();
+    },
+  );
+
+  it('↔ 짝: 벡터를 만들지 못하면 조회하지 않는다', async () => {
+    // 검색을 안 했으면 조회할 contentid도 없다. 여기서 새면 빈 조회 왕복이
+    // 공백뿐인 질의마다 하나씩 늘어난다.
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '   ',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    await service.chat(createRequest('   '));
+
+    expect(findByIds).not.toHaveBeenCalled();
   });
 });
 
@@ -680,6 +810,21 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
     );
     classify.mockResolvedValue('recommend_places');
     search.mockRejectedValue(failure);
+    const service = await createService();
+
+    await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(
+      failure,
+    );
+  });
+
+  it('TourContentLookup이 던진 DB 오류를 삼키지 않는다', async () => {
+    // 여섯 번째 협력자다. ExternalServiceError가 아니라 TypeORM이 던지는 오류
+    // 그대로이고, 전역 필터가 잡지 않으므로 Nest 기본 처리로 500이 된다.
+    // 여기서 빈 배열로 축퇴시키면 DB 장애가 200 + "조건에 맞는 장소를 찾지
+    // 못했어요"가 되고, 사용자는 자기 조건이 까다로웠다고 이해한다.
+    const failure = new Error('Connection terminated unexpectedly');
+    classify.mockResolvedValue('recommend_places');
+    findByIds.mockRejectedValue(failure);
     const service = await createService();
 
     await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(

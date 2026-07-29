@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
+import { TourContentLookup } from '../database/tour-content.lookup';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { buildChatResponse } from './dto/chat-response.dto';
@@ -31,6 +32,7 @@ export class ChatService {
     private readonly otherResponder: OtherResponder,
     private readonly tei: TeiClient,
     private readonly qdrant: QdrantSearchClient,
+    private readonly tourContents: TourContentLookup,
   ) {}
 
   /**
@@ -113,13 +115,23 @@ export class ChatService {
   }
 
   /**
-   * 질의 벡터로 장소를 찾는다.
+   * 질의 벡터로 장소를 찾고, 이름은 Postgres에서 읽는다.
    *
-   * 실패는 삼키지 않는다. 여기서 빈 배열로 축퇴시키면 Qdrant 장애가 "조건에
-   * 맞는 장소가 없다"로 둔갑하고, 사용자는 자기 조건을 고치려 든다.
+   * payload.title을 쓰지 않는다. Qdrant payload는 core가 색인할 때 떠 놓은
+   * 사본이고 제목의 단일 진실 원천은 tour_contents다 — 색인 이후 이름이 바뀌면
+   * 두 값이 갈리고, payload를 쓰면 화면에 옛 이름이 나간다. Qdrant가 정하는
+   * 것은 **어떤 장소를 어떤 순서로** 보여줄지이고, 그 장소가 **무엇인지**는
+   * Postgres가 정한다.
    *
-   * hit 수를 로그로 남긴다. 화면에 나가는 이름 개수와 이 수가 어긋나면
-   * title이 빈 hit이 섞였다는 뜻이고, 그 어긋남을 볼 수 있는 지점이 여기뿐이다.
+   * 관련도 순서는 contentid 배열의 순서로 넘어간다. 되받는 순서를 지키는 것은
+   * TourContentLookup의 책임이다(In() 조회가 입력 순서를 보장하지 않는다).
+   *
+   * 실패는 삼키지 않는다. 여기서 빈 배열로 축퇴시키면 Qdrant·Postgres 장애가
+   * "조건에 맞는 장소가 없다"로 둔갑하고, 사용자는 자기 조건을 고치려 든다.
+   *
+   * hit 수를 로그로 남긴다. 화면에 나가는 이름 개수와 이 수가 어긋나면 버려진
+   * hit이 섞였다는 뜻이다 — payload 파싱 실패인지 Postgres 미동기화인지는
+   * QdrantSearchClient와 TourContentLookup의 warn이 각각 가른다.
    */
   private async searchPlaces(embedding: number[]): Promise<string[]> {
     const hits = await this.qdrant.search(embedding, {
@@ -128,7 +140,11 @@ export class ChatService {
 
     this.logger.debug(`장소 검색 완료: hit=${hits.length}`);
 
-    return hits.map((hit) => hit.payload.title);
+    const contents = await this.tourContents.findByIds(
+      hits.map((hit) => hit.payload.contentid),
+    );
+
+    return contents.map((content) => content.title);
   }
 
   /**
