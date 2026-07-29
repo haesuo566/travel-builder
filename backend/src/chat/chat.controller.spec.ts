@@ -490,7 +490,7 @@ describe('ChatController', () => {
     const body = response.body as ChatResponseDto;
     expect(body.planStatus).toBe('none');
     expect(body.reply).toBe(
-      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} ${TOUR_ROW.title} ${PLAN_NOT_ASSEMBLED_NOTE}`,
+      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} ${TOUR_ROW.title}. ${PLAN_NOT_ASSEMBLED_NOTE}`,
     );
     expect(body.reply).not.toContain(TOUR_HIT.payload.title);
   });

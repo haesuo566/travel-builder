@@ -297,7 +297,7 @@ describe('ChatService — 갈래별 reply', () => {
     );
 
     expect(response.reply).toBe(
-      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} 한라산, 마라도 ${PLAN_NOT_ASSEMBLED_NOTE}`,
+      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} 한라산, 마라도. ${PLAN_NOT_ASSEMBLED_NOTE}`,
     );
   });
 

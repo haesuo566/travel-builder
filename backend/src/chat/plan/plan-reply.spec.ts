@@ -35,8 +35,18 @@ describe('buildPlanReply — 찾은 장소를 알리는 문장', () => {
     const reply = buildPlanReply(JEJU, ['한라산', '성산일출봉']);
 
     expect(reply).toBe(
-      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} 한라산, 성산일출봉 ${PLAN_NOT_ASSEMBLED_NOTE}`,
+      `${PLAN_REPLY_HEAD} — 지역: 제주. ${PLAN_PLACES_HEAD} 한라산, 성산일출봉. ${PLAN_NOT_ASSEMBLED_NOTE}`,
     );
+  });
+
+  it('마지막 장소 이름과 다음 문장이 붙지 않는다', () => {
+    // 목록 뒤에 마침표가 없으면 '마라도 날짜별 일정으로 …'처럼 이름이 다음
+    // 문장의 첫 단어와 한 어절로 읽힌다. 다른 두 맺음말은 문장으로 끝나므로
+    // 이 갈래에만 생기는 결함이다.
+    const reply = buildPlanReply(JEJU, ['한라산', '마라도']);
+
+    expect(reply).not.toContain('마라도 날짜별');
+    expect(reply).toContain(`마라도. ${PLAN_NOT_ASSEMBLED_NOTE}`);
   });
 
   it('조건이 바뀌면 요약도 바뀐다', () => {

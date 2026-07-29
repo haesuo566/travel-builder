@@ -62,9 +62,12 @@ function buildSearchTail(placeNames: string[] | null): string {
 
   const names = placeNames.filter((name) => name.trim() !== '');
 
+  // 목록 뒤에 마침표를 찍는다. 뒤에 PLAN_NOT_ASSEMBLED_NOTE가 반드시 붙으므로,
+  // 없으면 마지막 이름이 다음 문장의 첫 단어와 한 어절로 읽힌다('마라도 날짜별').
+  // 다른 두 맺음말은 이미 문장으로 끝나 이 갈래에만 생기는 문제다.
   return names.length === 0
     ? PLAN_NO_HITS_TAIL
-    : `${PLAN_PLACES_HEAD} ${names.join(PLACE_SEPARATOR)}`;
+    : `${PLAN_PLACES_HEAD} ${names.join(PLACE_SEPARATOR)}.`;
 }
 
 /**
