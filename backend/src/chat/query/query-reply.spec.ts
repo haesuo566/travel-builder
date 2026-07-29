@@ -4,7 +4,9 @@
 import 'reflect-metadata';
 
 import {
+  buildPlacesTail,
   buildRecommendReply,
+  composeRecommendReply,
   NO_CONDITIONS_SUMMARY,
   RECOMMEND_NO_HITS_TAIL,
   RECOMMEND_NOT_SEARCHED_TAIL,
@@ -189,5 +191,56 @@ describe('buildRecommendReply — 검색 결과', () => {
     ]);
 
     expect(reply).toContain(RECOMMEND_NO_HITS_TAIL);
+  });
+});
+
+describe('composeRecommendReply — 앞부분은 코드가 정한다', () => {
+  it('임의의 맺음말 앞에 머리말과 조건 요약을 붙인다', () => {
+    // 이 함수가 존재하는 이유가 여기 있다. 맺음말이 모델의 자유 텍스트여도
+    // "무엇으로 이해했는지"를 말하는 앞부분은 결정론적으로 남는다 — 모델이
+    // 조건을 흘리거나 지어내도 사용자가 대조할 원본이 화면에 함께 나간다.
+    const reply = composeRecommendReply(
+      createQuery({ region: '제주', category: '관광지' }),
+      '한라산은 사계절 내내 좋아요.',
+    );
+
+    expect(reply).toBe(
+      '장소 추천 요청으로 이해했어요 — 지역: 제주 · 분류: 관광지. 한라산은 사계절 내내 좋아요.',
+    );
+  });
+
+  it('맺음말이 달라도 조건 요약은 그대로다', () => {
+    // ↔ 위 짝. 앞부분이 맺음말에 따라 움직이면 결정론이 아니다.
+    const query = createQuery({ region: '부산' });
+
+    expect(composeRecommendReply(query, '가')).toContain('지역: 부산');
+    expect(composeRecommendReply(query, '나')).toContain('지역: 부산');
+  });
+
+  it('조건이 없으면 미지정 요약을 앞세운다', () => {
+    const reply = composeRecommendReply(createQuery(), '아무 맺음말');
+
+    expect(reply).toBe(
+      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. 아무 맺음말`,
+    );
+  });
+});
+
+describe('buildPlacesTail — 결정론적 폴백 맺음말', () => {
+  it('머리말 뒤에 이름을 순서대로 잇는다', () => {
+    expect(buildPlacesTail(['성산일출봉', '우도'])).toBe(
+      `${RECOMMEND_PLACES_HEAD} 성산일출봉, 우도`,
+    );
+  });
+
+  it('buildRecommendReply의 장소 갈래와 같은 맺음말을 만든다', () => {
+    // 이 등가가 깨지면 Gemini 검증 실패 폴백이 기존 결정론적 응답과 다른
+    // 문장을 내게 되고, 안전망이 안전망이 아니게 된다.
+    const query = createQuery({ region: '제주' });
+    const names = ['성산일출봉', '우도'];
+
+    expect(buildRecommendReply(query, names)).toBe(
+      composeRecommendReply(query, buildPlacesTail(names)),
+    );
   });
 });
