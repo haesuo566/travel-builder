@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChatPanel } from "@/components/planner/ChatPanel";
 import { ItineraryEmptyState } from "@/components/planner/ItineraryEmptyState";
 import { ItineraryPanel } from "@/components/planner/ItineraryPanel";
+import { Button } from "@/components/ui/Button";
 import { sendMessage } from "@/lib/api/itinerary";
 import { hasItinerary, resolveMobileTab, type MobileTab } from "@/lib/plan-view";
 import type { ChatMessage, Itinerary } from "@/lib/types";
@@ -26,6 +27,7 @@ export default function PlanPage() {
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>("chat");
+  const [isPanelOpen, setIsPanelOpen] = useState(true);
 
   async function handleSend(content: string) {
     const userMessage: ChatMessage = {
@@ -47,6 +49,9 @@ export default function PlanPage() {
       setMessages((prev) => [...prev, assistantMessage]);
       setItinerary(result.itinerary);
       setActiveMobileTab(resolveMobileTab(result.planStatus));
+      if (result.planStatus === "ready") {
+        setIsPanelOpen(true);
+      }
     } catch (error) {
       // 실패한 사용자 메시지는 목록에 그대로 둔다 — 되돌리면 사용자가 무엇을
       // 보냈는지 사라진다. 안내는 말풍선으로 덧붙이고 입력창은 finally에서
@@ -65,54 +70,76 @@ export default function PlanPage() {
     }
   }
 
+  const itineraryExists = hasItinerary(itinerary);
+  const showPanel = itineraryExists && isPanelOpen;
+
   return (
     <div className="flex flex-1 flex-col">
-      {hasItinerary(itinerary) && (
-        <div className="flex gap-2 border-b border-slate-100 px-4 py-3 md:hidden">
-          <button
+      {itineraryExists && (
+        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+          {showPanel && (
+            <div className="flex flex-1 gap-2 md:hidden">
+              <button
+                type="button"
+                onClick={() => setActiveMobileTab("chat")}
+                className={`flex-1 rounded-xl py-2 text-sm font-medium ${
+                  activeMobileTab === "chat"
+                    ? "bg-brand text-white"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                채팅
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveMobileTab("itinerary")}
+                className={`flex-1 rounded-xl py-2 text-sm font-medium ${
+                  activeMobileTab === "itinerary"
+                    ? "bg-brand text-white"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                일정
+              </button>
+            </div>
+          )}
+          <Button
             type="button"
-            onClick={() => setActiveMobileTab("chat")}
-            className={`flex-1 rounded-xl py-2 text-sm font-medium ${
-              activeMobileTab === "chat"
-                ? "bg-brand text-white"
-                : "bg-slate-100 text-slate-600"
-            }`}
+            variant="ghost"
+            size="md"
+            onClick={() => setIsPanelOpen((prev) => !prev)}
           >
-            채팅
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveMobileTab("itinerary")}
-            className={`flex-1 rounded-xl py-2 text-sm font-medium ${
-              activeMobileTab === "itinerary"
-                ? "bg-brand text-white"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            일정
-          </button>
+            {showPanel ? "일정 패널 닫기" : "일정 패널 열기"}
+          </Button>
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
         <div
-          className={`w-full flex-col border-r border-slate-100 md:flex md:w-[40%] ${
-            activeMobileTab === "chat" ? "flex" : "hidden"
-          }`}
+          className={`w-full flex-col md:flex ${
+            showPanel ? "border-r border-slate-100 md:w-[40%]" : "md:w-full"
+          } ${!showPanel || activeMobileTab === "chat" ? "flex" : "hidden"}`}
         >
           <ChatPanel messages={messages} isLoading={isLoading} onSend={handleSend} />
         </div>
-        <div
-          className={`w-full flex-col md:flex md:w-[60%] ${
-            activeMobileTab === "itinerary" ? "flex" : "hidden"
-          }`}
-        >
-          {hasItinerary(itinerary) ? (
-            <ItineraryPanel itinerary={itinerary} />
-          ) : (
+        {!itineraryExists && (
+          <div
+            className={`w-full flex-col md:flex md:w-[60%] ${
+              activeMobileTab === "itinerary" ? "flex" : "hidden"
+            }`}
+          >
             <ItineraryEmptyState />
-          )}
-        </div>
+          </div>
+        )}
+        {showPanel && (
+          <div
+            className={`w-full flex-col md:flex md:w-[60%] ${
+              activeMobileTab === "itinerary" ? "flex" : "hidden"
+            }`}
+          >
+            <ItineraryPanel itinerary={itinerary} />
+          </div>
+        )}
       </div>
     </div>
   );
