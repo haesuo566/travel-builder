@@ -51,8 +51,12 @@ const PLACE_SEPARATOR = ', ';
  *
  * 색인 라벨(QUERY_LABELS)은 절대 나타나지 않는다 — 내부 포맷이 UI 계약이 되면
  * 나중에 라벨을 바꿀 수 없다.
+ *
+ * RecommendResponder가 프롬프트 재료로도 쓰므로 노출한다. 화면에 나가는 문장과
+ * 모델에게 주는 조건이 같은 함수에서 나와야 한다 — 갈리면 모델이 이해한 조건과
+ * 사용자가 화면에서 읽는 조건이 서로 다른 말을 하게 된다.
  */
-function buildConditionSummary(conditions: QueryConditions): string {
+export function buildConditionSummary(conditions: QueryConditions): string {
   const parts: string[] = [];
 
   if (conditions.region !== null) {
