@@ -19,7 +19,11 @@ import {
   PLAN_DESTINATION_UNKNOWN_REPLY,
   PLAN_READY_GUIDE,
 } from './plan/plan-reply';
-import { RECOMMEND_REPLY_HEAD } from './query/query-reply';
+import {
+  RECOMMEND_NO_HITS_TAIL,
+  RECOMMEND_NOT_SEARCHED_TAIL,
+  RECOMMEND_REPLY_HEAD,
+} from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 import type { StructuredQuery } from './query/structured-query';
 import { EMPTY_CONDITIONS } from './query/structured-query';
@@ -543,6 +547,46 @@ describe('ChatService — 장소 검색', () => {
     await service.chat(createRequest(PLAN_MESSAGE));
 
     expect(search).not.toHaveBeenCalled();
+  });
+
+  it('찾은 장소 이름을 응답 문구에 싣는다', async () => {
+    // 검색해 놓고 문구에 싣지 않으면 Qdrant 왕복이 통째로 낭비되고, 사용자는
+    // 검색이 돌았는지조차 알 수 없다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toContain('성산일출봉');
+    expect(response.reply).toContain('우도');
+  });
+
+  it('hit이 0건이면 찾지 못했다고 말한다', async () => {
+    classify.mockResolvedValue('recommend_places');
+    search.mockResolvedValue([]);
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(response.reply).toContain(RECOMMEND_NO_HITS_TAIL);
+  });
+
+  it('↔ 짝: 검색을 못 한 요청은 hit 0건과 다른 문구를 받는다', async () => {
+    // 벡터가 없어 검색을 아예 못 한 것과, 검색은 돌았는데 결과가 없는 것은
+    // 사용자에게 다른 사실이다. 뭉개면 폴백을 "결과 없음"으로 오청구하게 된다.
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '   ',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    const response = await service.chat(createRequest('   '));
+
+    expect(response.reply).toContain(RECOMMEND_NOT_SEARCHED_TAIL);
+    expect(response.reply).not.toContain(RECOMMEND_NO_HITS_TAIL);
   });
 
   it('검색된 hit 수를 로그로 남긴다', async () => {

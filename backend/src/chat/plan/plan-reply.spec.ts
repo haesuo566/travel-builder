@@ -37,12 +37,15 @@ describe('buildPlanReply — 준비된 일정을 알리는 문장', () => {
     // 두 문장 틀이 같아지면 switch의 arm을 바꿔도 경로 스모크가 못 잡는다.
     // 이 짝은 query-reply.spec.ts에 있던 갈래 대조를 대체한다 —
     // 두 갈래의 문구가 이제 서로 다른 모듈에 있으므로 여기서 잇는다.
-    const recommend = buildRecommendReply({
-      queryText: '무엇을 하는 곳: 일출 감상',
-      conditions: { ...EMPTY_CONDITIONS, region: '제주' },
-      droppedLabels: [],
-      fellBackToRawMessage: false,
-    });
+    const recommend = buildRecommendReply(
+      {
+        queryText: '무엇을 하는 곳: 일출 감상',
+        conditions: { ...EMPTY_CONDITIONS, region: '제주' },
+        droppedLabels: [],
+        fellBackToRawMessage: false,
+      },
+      ['성산일출봉'],
+    );
 
     expect(buildPlanReply(buildMockItinerary('제주'))).not.toBe(recommend);
   });

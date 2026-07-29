@@ -104,12 +104,12 @@ export class ChatService {
   ): Promise<ChatResponseDto> {
     const query = await this.queryStructurer.structure(request.message);
     const embedding = await this.embedQueryText(query.queryText);
+    // null을 빈 배열로 접지 않는다. 검색을 못 한 것과 검색 결과가 없는 것은
+    // 사용자에게 다른 사실이고, 문구를 고르는 것은 buildRecommendReply다.
+    const placeNames =
+      embedding === null ? null : await this.searchPlaces(embedding);
 
-    if (embedding !== null) {
-      await this.searchPlaces(embedding);
-    }
-
-    return buildChatResponse(buildRecommendReply(query), null);
+    return buildChatResponse(buildRecommendReply(query, placeNames), null);
   }
 
   /**
@@ -118,9 +118,8 @@ export class ChatService {
    * 실패는 삼키지 않는다. 여기서 빈 배열로 축퇴시키면 Qdrant 장애가 "조건에
    * 맞는 장소가 없다"로 둔갑하고, 사용자는 자기 조건을 고치려 든다.
    *
-   * TODO: 돌려받은 이름을 응답 문구에 싣는 자리. 아직 소비자가 없어 hit 수만
-   * 로그로 남긴다. 버려진 hit(payload 파싱 실패)이 있으면 이 수와 화면의 이름
-   * 개수가 어긋나므로, 이 로그는 소비자가 붙은 뒤에도 대조 기준으로 남는다.
+   * hit 수를 로그로 남긴다. 화면에 나가는 이름 개수와 이 수가 어긋나면
+   * title이 빈 hit이 섞였다는 뜻이고, 그 어긋남을 볼 수 있는 지점이 여기뿐이다.
    */
   private async searchPlaces(embedding: number[]): Promise<string[]> {
     const hits = await this.qdrant.search(embedding, {

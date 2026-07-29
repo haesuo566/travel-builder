@@ -26,8 +26,10 @@ import {
 } from './plan/plan-reply';
 import {
   NO_CONDITIONS_SUMMARY,
+  RECOMMEND_NO_HITS_TAIL,
+  RECOMMEND_NOT_SEARCHED_TAIL,
+  RECOMMEND_PLACES_HEAD,
   RECOMMEND_REPLY_HEAD,
-  RECOMMEND_REPLY_TAIL,
 } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
@@ -482,9 +484,61 @@ describe('ChatController', () => {
 
     const { reply } = response.body as ChatResponseDto;
     expect(reply).toBe(
-      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_REPLY_TAIL}`,
+      `${RECOMMEND_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${RECOMMEND_PLACES_HEAD} ${TOUR_HIT.payload.title}`,
     );
     expect(reply).not.toContain('제주 관광지 추천');
+  });
+
+  it('검색된 장소 이름이 HTTP를 관통한다', async () => {
+    // 문구 조립은 query-reply.spec.ts가 고정하지만, 그 이름이 실제로 Qdrant
+    // 응답에서 와서 HTTP 본문까지 도달하는지는 별개다. 서비스가 검색 결과를
+    // 버리고 조건 요약만 내보내도 하위 spec은 전부 초록불이다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockResolvedValue([TOUR_HIT]);
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    const { reply } = response.body as ChatResponseDto;
+    expect(reply).toContain('지역: 제주');
+    expect(reply).toContain(TOUR_HIT.payload.title);
+  });
+
+  it('hit이 0건이면 200 + 못 찾았다는 문구가 나간다', async () => {
+    // ↔ 위 짝. 0건이 500이나 빈 말풍선이 되지 않는지 본다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockResolvedValue([]);
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(200);
+
+    const { reply } = response.body as ChatResponseDto;
+    expect(reply).toContain(RECOMMEND_NO_HITS_TAIL);
+    expect(reply).not.toContain(RECOMMEND_NOT_SEARCHED_TAIL);
+  });
+
+  it('qdrant가 unavailable로 실패하면 503이 나간다', async () => {
+    // 다섯 번째 협력자도 전역 필터를 탄다. 여기서 삼키면 장애가 200 + "장소를
+    // 찾지 못했어요"가 되어 프론트가 재시도 안내를 띄울 근거를 잃는다.
+    mockGemini('recommend_places', QUERY_RESPONSE);
+    search.mockRejectedValue(
+      new ExternalServiceError('qdrant', 'unavailable', '연결 실패'),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 관광지 추천' })
+      .expect(503);
+
+    expect(response.body).toEqual({
+      statusCode: 503,
+      error: 'unavailable',
+      message: '외부 서비스에 연결할 수 없습니다.',
+    });
   });
 
   it('공백뿐인 메시지도 200으로 나간다', async () => {
@@ -509,9 +563,15 @@ describe('ChatController', () => {
       .send({ message: '   ' })
       .expect(200);
 
-    expect((response.body as ChatResponseDto).reply).toContain(
-      RECOMMEND_REPLY_HEAD,
-    );
+    const { reply } = response.body as ChatResponseDto;
+    expect(reply).toContain(RECOMMEND_REPLY_HEAD);
+    // 벡터가 없으면 검색도 없다. 여기서 호출이 새면 Qdrant가 무엇을 받는지
+    // 아무도 정하지 않은 채로 실제 요청이 나간다.
+    expect(search).not.toHaveBeenCalled();
+    // hit 0건 문구를 쓰면 "조건에 맞는 장소가 없다"가 되지만 사실은 검색조차
+    // 하지 않았다 — 두 문구가 HTTP에서도 갈리는지 센다.
+    expect(reply).toContain(RECOMMEND_NOT_SEARCHED_TAIL);
+    expect(reply).not.toContain(RECOMMEND_NO_HITS_TAIL);
   });
 
   it('gemini가 quota로 실패하면 503 + Retry-After가 나간다', async () => {
