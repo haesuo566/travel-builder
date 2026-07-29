@@ -161,7 +161,7 @@ src/chat/chat.controller.spec.ts
 
 > **이 태스크에는 "실패하는 테스트 작성" Step이 없다.** 실패가 이미 게이트에 떠 있고, 새 테스트를 지어내면 그것은 즉시 통과해서 red를 볼 수 없다. 아래 Step 1이 그 red다.
 
-- [ ] **Step 1: 실패를 확인**
+- [x] **Step 1: 실패를 확인**
 
 ```
 npx eslint src --max-warnings=0
@@ -174,7 +174,7 @@ src/chat/chat.controller.spec.ts
   20:10  error  'QueryStructurer' is defined but never used  @typescript-eslint/no-unused-vars
 ```
 
-- [ ] **Step 2: 단정을 제목대로 채운다**
+- [x] **Step 2: 단정을 제목대로 채운다**
 
 `src/chat/chat.controller.spec.ts`의 `it('ChatModule이 세 협력자와 Gemini 주입 경로를 제공한다', ...)` 안, 마지막 `expect(...)` 블록(`:128-130`)을 아래로 **교체**:
 
@@ -188,7 +188,7 @@ src/chat/chat.controller.spec.ts
     expect(moduleFixture.get(OtherResponder)).toBeInstanceOf(OtherResponder);
 ```
 
-- [ ] **Step 3: 통과를 확인**
+- [x] **Step 3: 통과를 확인**
 
 ```
 npm test
@@ -198,7 +198,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS — **테스트 수는 변하지 않는다**(단정만 늘었다). 린트가 처음으로 초록이 된다.
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add src/chat/chat.controller.spec.ts
@@ -224,7 +224,7 @@ import 둘이 쓰이지 않아 npx eslint src --max-warnings=0이 main에서
 - Consumes: Task 1 (린트 초록)
 - Produces: `OTHER_REPLY: string` — `src/chat/other/other-prompt.ts`에서 export
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `src/chat/other/other-prompt.spec.ts` 맨 위 import 블록을 아래로 **교체**:
 
@@ -250,7 +250,7 @@ describe('OTHER_REPLY', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- other-prompt
@@ -267,7 +267,7 @@ Expected: FAIL — **1 failed, 11 passed**. 실측한 메시지는 아래다. `t
     at Object.<anonymous> (chat/other/other-prompt.spec.ts:47:30)
 ```
 
-- [ ] **Step 3: 구현 — 상수를 옮기고 참조 넷을 고친다**
+- [x] **Step 3: 구현 — 상수를 옮기고 참조 넷을 고친다**
 
 **(1)** `src/chat/other/other-prompt.ts` **맨 앞**(`/** 응답 길이 상한.` 블록 바로 위)에 삽입:
 
@@ -351,7 +351,7 @@ import { OtherResponder } from './other/other.responder';
 import { QueryStructurer } from './query/query.structurer';
 ```
 
-- [ ] **Step 4: 통과를 확인**
+- [x] **Step 4: 통과를 확인**
 
 ```
 npm test
@@ -361,7 +361,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS — **401건**(실측). 동작은 하나도 바뀌지 않았다.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add src/chat/chat.controller.spec.ts src/chat/chat.service.spec.ts src/chat/chat.service.ts src/chat/other/
@@ -388,7 +388,7 @@ forwardRef는 DI만 덮고 import 순환은 남기므로 기각했다. 이 값�
 - Consumes: Task 2의 `OTHER_REPLY` (`other/other-prompt.ts`) · 기존 `QueryStructurer.structure` · 기존 `buildStructuredReply`
 - Produces: `ChatService` 생성자가 `(IntentClassifier, QueryStructurer)`를 받는다
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `src/chat/chat.service.spec.ts`를 **아래 전문으로 교체한다**(기존 파일을 통째로 대체):
 
@@ -584,7 +584,7 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
 });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- chat.service
@@ -601,7 +601,7 @@ Expected: FAIL — **4건**. 각각의 이유가 다르므로 넷을 모두 확�
 
 `↔ 짝: other 갈래는 QueryStructurer를 호출하지 않는다`는 **통과한다** — 아직 아무 데서도 안 부르기 때문이다. 정상이다.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/chat/chat.service.ts`를 **아래 전문으로 교체한다**. placeholder 상수 둘이 여기서 사라진다:
 
@@ -681,7 +681,7 @@ export class ChatService {
 }
 ```
 
-- [ ] **Step 4: 컨트롤러 spec을 배선에 맞춘다**
+- [x] **Step 4: 컨트롤러 spec을 배선에 맞춘다**
 
 `chat.service`는 초록이 됐지만 `chat.controller.spec`이 아직 placeholder 상수를 import한다. 아래 넷을 고친다.
 
@@ -743,7 +743,7 @@ function mockGemini(intentResponse: string, branchResponse: string): void {
     expect(new Set(replies).size).toBe(3);
 ```
 
-- [ ] **Step 5: 통과를 확인**
+- [x] **Step 5: 통과를 확인**
 
 ```
 npm test
@@ -753,7 +753,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS — **404건**(실측). prettier가 걸리면 `npm run lint`로 맞춘다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/chat/chat.service.ts src/chat/chat.service.spec.ts src/chat/chat.controller.spec.ts
@@ -783,7 +783,7 @@ mockResolvedValueOnce 사슬 대신 systemInstruction으로 호출 지점을
 - Consumes: Task 3의 `ChatService(IntentClassifier, QueryStructurer)` · 기존 `OtherResponder.respond`
 - Produces: `ChatService` 생성자가 `(IntentClassifier, QueryStructurer, OtherResponder)`를 받는다
 
-- [ ] **Step 1: 실패하는 테스트 작성 — `chat.service.spec.ts`**
+- [x] **Step 1: 실패하는 테스트 작성 — `chat.service.spec.ts`**
 
 **(1-1)** import 중 `import { OTHER_REPLY } from './other/other-prompt';` 한 줄을 아래로 **교체**:
 
@@ -890,7 +890,7 @@ describe('ChatService — 대화 위임', () => {
   });
 ```
 
-- [ ] **Step 2: 실패를 확인**
+- [x] **Step 2: 실패를 확인**
 
 ```
 npm test -- chat.service
@@ -906,7 +906,7 @@ Expected: FAIL — **3건**:
 
 `↔ 짝: 구조화 갈래는 OtherResponder를 호출하지 않는다`는 **통과한다**. 정상이다.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `src/chat/chat.service.ts`에서 세 곳을 고친다.
 
@@ -949,7 +949,7 @@ import { OtherResponder } from './other/other.responder';
   }
 ```
 
-- [ ] **Step 4: 컨트롤러 spec을 배선에 맞춘다**
+- [x] **Step 4: 컨트롤러 spec을 배선에 맞춘다**
 
 `other` 갈래도 `generate`를 두 번 부르게 되어 세 건이 깨진다. 넷을 고치고 하나를 더한다.
 
@@ -1022,7 +1022,7 @@ const OTHER_RESPONSE = '제주는 사계절 모두 좋아요. 어느 계절이 �
 
 > `message가 1001자면 400이고 gemini를 호출하지 않는다`는 **고치지 않는다.** 호출 0건이라는 ↔ 짝의 의미가 그대로다.
 
-- [ ] **Step 5: 통과를 확인**
+- [x] **Step 5: 통과를 확인**
 
 ```
 npm test
@@ -1032,7 +1032,7 @@ npx eslint src --max-warnings=0
 
 Expected: PASS — **408건**(실측). prettier가 걸리면 `npm run lint`로 맞춘다.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add src/chat/chat.service.ts src/chat/chat.service.spec.ts src/chat/chat.controller.spec.ts
@@ -1059,16 +1059,16 @@ other 갈래는 폴백 문구가 정상 응답과 구별되지 않으므로, 여
 
 ## 최종 검증
 
-- [ ] `npx tsc --noEmit -p tsconfig.json` 통과
-- [ ] `npm test` 전체 통과 — **408건**
-- [ ] `npx eslint src --max-warnings=0` 통과 (**main에서는 실패하던 게이트다**)
-- [ ] `npm run build` 성공
-- [ ] `npm run test:e2e` 통과 — **6건, 변화 없음**. e2e는 `POST /chat`을 타지 않는다(`test/external-service.e2e-spec.ts:22-23`)
-- [ ] `src/chat/chat.module.ts`가 **변경되지 않았다** (`git diff --stat`에 나타나지 않아야 한다)
-- [ ] `src/chat/chat.service.ts`에 `try`·`catch`가 **하나도 없다**
-- [ ] `PLAN_ITINERARY_PLACEHOLDER_REPLY`·`RECOMMEND_PLACES_PLACEHOLDER_REPLY`가 저장소에서 **완전히 사라졌다**
-- [ ] `OTHER_REPLY`를 `chat.service`에서 import하는 곳이 **하나도 없다** (순환이 되살아나지 않았다)
-- [ ] 에러 처리 표의 "Gemini 실패" 3행에 각각 테스트가 하나씩 있다 — 행 수와 테스트 수를 센다
+- [x] `npx tsc --noEmit -p tsconfig.json` 통과
+- [x] `npm test` 전체 통과 — **408건**
+- [x] `npx eslint src --max-warnings=0` 통과 (**main에서는 실패하던 게이트다**)
+- [x] `npm run build` 성공
+- [x] `npm run test:e2e` 통과 — **6건, 변화 없음**. e2e는 `POST /chat`을 타지 않는다(`test/external-service.e2e-spec.ts:22-23`)
+- [x] `src/chat/chat.module.ts`가 **변경되지 않았다** (`git diff --stat`에 나타나지 않아야 한다)
+- [x] `src/chat/chat.service.ts`에 `try`·`catch`가 **하나도 없다**
+- [x] `PLAN_ITINERARY_PLACEHOLDER_REPLY`·`RECOMMEND_PLACES_PLACEHOLDER_REPLY`가 저장소에서 **완전히 사라졌다**
+- [x] `OTHER_REPLY`를 `chat.service`에서 import하는 곳이 **하나도 없다** (순환이 되살아나지 않았다)
+- [x] 에러 처리 표의 "Gemini 실패" 3행에 각각 테스트가 하나씩 있다 — 행 수와 테스트 수를 센다
 
 ## 사용자 확인 필요 (에이전트가 실행할 수 없는 검증)
 
