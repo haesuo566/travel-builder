@@ -1,6 +1,6 @@
-import type { Itinerary } from "../types";
+import type { ChatResponse, Itinerary } from "../types";
 import { getDefaultItinerary } from "../mock/itineraries";
-import type { ScenarioResult } from "../mock/scenarios";
+import { parseChatResponse } from "./chat-response";
 
 /**
  * 최초 일정은 아직 mock이다. 백엔드에 대응 엔드포인트(GET /itinerary류)가 없고,
@@ -40,12 +40,16 @@ function resolveApiBaseUrl(): string {
 
 /**
  * 한 턴의 대화를 백엔드에 넘긴다. 서버는 무상태이므로 현재 일정을 매번 함께 보낸다
- * (backend/src/chat/dto/chat-request.dto.ts).
+ * (backend/src/chat/dto/chat-request.dto.ts, itinerary는 @IsOptional()).
+ *
+ * currentItinerary가 null이어도 요청 본문의 itinerary 키는 그대로 두고 값만
+ * null로 보낸다 — 키를 조건부로 빼면 body 조립에 분기가 하나 늘고 그중 한쪽만
+ * 테스트되는 형태가 된다.
  */
 export async function sendMessage(
   message: string,
-  currentItinerary: Itinerary
-): Promise<ScenarioResult> {
+  currentItinerary: Itinerary | null
+): Promise<ChatResponse> {
   const baseUrl = resolveApiBaseUrl();
 
   let response: Response;
@@ -65,7 +69,7 @@ export async function sendMessage(
     throw new Error(await readErrorMessage(response));
   }
 
-  return (await response.json()) as ScenarioResult;
+  return parseChatResponse(await response.json());
 }
 
 /** 백엔드가 내는 두 에러 shape이 공유하는 부분만 본다. */

@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDefaultItinerary } from "../mock/itineraries";
+import { INVALID_RESPONSE_MESSAGE } from "./chat-response";
 import { sendMessage } from "./itinerary";
+import type { Itinerary } from "../types";
 
 const BASE_URL = "http://localhost:3001";
+
+const JEJU_ITINERARY: Itinerary = {
+  summary: { destination: "제주", duration: "2박 3일", travelers: "성인 2명" },
+  days: [{ day: 1, places: [] }],
+};
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -28,12 +34,15 @@ describe("sendMessage", () => {
   });
 
   it("메시지와 현재 일정을 POST /chat 본문에 함께 싣는다", async () => {
-    const current = getDefaultItinerary();
     const fetchMock = stubFetch(
-      jsonResponse(200, { reply: "네", itinerary: current })
+      jsonResponse(200, {
+        reply: "네",
+        planStatus: "ready",
+        itinerary: JEJU_ITINERARY,
+      })
     );
 
-    await sendMessage("제주 2박3일", current);
+    await sendMessage("제주 2박3일", JEJU_ITINERARY);
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://localhost:3001/chat");
@@ -41,35 +50,90 @@ describe("sendMessage", () => {
     expect(init?.headers).toEqual({ "Content-Type": "application/json" });
     expect(JSON.parse(String(init?.body))).toEqual({
       message: "제주 2박3일",
-      itinerary: current,
+      itinerary: JEJU_ITINERARY,
     });
   });
 
-  it("200 응답의 reply와 itinerary를 그대로 돌려준다", async () => {
-    const current = getDefaultItinerary();
-    const next = { ...current, summary: { ...current.summary, destination: "제주" } };
-    stubFetch(jsonResponse(200, { reply: "제주 일정이에요", itinerary: next }));
+  it("200 ready 응답의 reply와 itinerary를 그대로 돌려준다", async () => {
+    stubFetch(
+      jsonResponse(200, {
+        reply: "제주 일정이에요",
+        planStatus: "ready",
+        itinerary: JEJU_ITINERARY,
+      })
+    );
 
-    const result = await sendMessage("제주", current);
+    const result = await sendMessage("제주", JEJU_ITINERARY);
 
     expect(result.reply).toBe("제주 일정이에요");
-    expect(result.itinerary).toEqual(next);
+    expect(result.itinerary).toEqual(JEJU_ITINERARY);
+  });
+
+  it("↔ 짝: 200 none 응답은 itinerary가 null이다", async () => {
+    stubFetch(
+      jsonResponse(200, {
+        reply: "어느 지역으로 떠나고 싶으신가요?",
+        planStatus: "none",
+        itinerary: null,
+      })
+    );
+
+    const result = await sendMessage("안녕", null);
+
+    expect(result.planStatus).toBe("none");
+    expect(result.itinerary).toBeNull();
+  });
+
+  it("현재 일정이 null이어도 요청 본문의 itinerary 키는 존재하고 값이 null이다", async () => {
+    const fetchMock = stubFetch(
+      jsonResponse(200, {
+        reply: "네",
+        planStatus: "none",
+        itinerary: null,
+      })
+    );
+
+    await sendMessage("안녕", null);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const parsedBody = JSON.parse(String(init?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect("itinerary" in parsedBody).toBe(true);
+    expect(parsedBody.itinerary).toBeNull();
+  });
+
+  it("planStatus가 없는 성공 응답은 형식 오류로 던진다", async () => {
+    stubFetch(jsonResponse(200, { reply: "네", itinerary: null }));
+
+    await expect(sendMessage("제주", null)).rejects.toThrow(
+      INVALID_RESPONSE_MESSAGE
+    );
   });
 
   it("NEXT_PUBLIC_API_BASE_URL이 없으면 fetch를 부르지 않고 던진다", async () => {
     vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", undefined);
-    const fetchMock = stubFetch(jsonResponse(200, { reply: "네", itinerary: null }));
+    const fetchMock = stubFetch(
+      jsonResponse(200, { reply: "네", planStatus: "none", itinerary: null })
+    );
 
-    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+    await expect(sendMessage("제주", JEJU_ITINERARY)).rejects.toThrow(
       /NEXT_PUBLIC_API_BASE_URL/
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("200이 아니면 응답 본문을 결과로 쓰지 않고 던진다", async () => {
-    stubFetch(jsonResponse(500, { reply: "이건 쓰이면 안 된다", itinerary: null }));
+    stubFetch(
+      jsonResponse(500, {
+        reply: "이건 쓰이면 안 된다",
+        planStatus: "none",
+        itinerary: null,
+      })
+    );
 
-    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(Error);
+    await expect(sendMessage("제주", JEJU_ITINERARY)).rejects.toThrow(Error);
   });
 
   it("ValidationPipe 400의 message 배열은 사용자에게 보여주지 않고 입력 안내로 바꾼다", async () => {
@@ -81,7 +145,7 @@ describe("sendMessage", () => {
       })
     );
 
-    await expect(sendMessage("긴 메시지", getDefaultItinerary())).rejects.toThrow(
+    await expect(sendMessage("긴 메시지", JEJU_ITINERARY)).rejects.toThrow(
       "입력을 확인해주세요. 메시지가 너무 길거나 형식이 올바르지 않습니다."
     );
   });
@@ -95,7 +159,7 @@ describe("sendMessage", () => {
       })
     );
 
-    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+    await expect(sendMessage("제주", JEJU_ITINERARY)).rejects.toThrow(
       "외부 서비스 사용량이 초과되었습니다. 잠시 후 다시 시도하세요."
     );
   });
@@ -108,7 +172,7 @@ describe("sendMessage", () => {
       )
     );
 
-    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+    await expect(sendMessage("제주", JEJU_ITINERARY)).rejects.toThrow(
       "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
     );
   });
@@ -119,7 +183,7 @@ describe("sendMessage", () => {
       vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch"))
     );
 
-    await expect(sendMessage("제주", getDefaultItinerary())).rejects.toThrow(
+    await expect(sendMessage("제주", JEJU_ITINERARY)).rejects.toThrow(
       "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
     );
   });
