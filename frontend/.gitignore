@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude harness 중간 산출물 (에이전트/스킬 정의는 커밋한다)
+/.claude/_workspace/
