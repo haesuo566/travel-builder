@@ -9,14 +9,12 @@ import { ExternalServiceError } from '../clients/external-service.error';
 import type { GeminiGenerateOptions } from '../clients/gemini/gemini.client';
 import { GeminiClient } from '../clients/gemini/gemini.client';
 import { ChatModule } from './chat.module';
-import {
-  PLAN_ITINERARY_PLACEHOLDER_REPLY,
-  RECOMMEND_PLACES_PLACEHOLDER_REPLY,
-} from './chat.service';
 import type { ChatResponseDto } from './dto/chat-response.dto';
+import { INTENT_SYSTEM_INSTRUCTION } from './intent/intent-prompt';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OTHER_REPLY } from './other/other-prompt';
 import { OtherResponder } from './other/other.responder';
+import { PLAN_REPLY_HEAD, RECOMMEND_REPLY_HEAD } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
 /**
@@ -54,6 +52,29 @@ function createItinerary() {
 }
 
 const generate = jest.fn<Promise<string>, [string, GeminiGenerateOptions?]>();
+
+/** 파싱에 성공하는 구조화 응답. 조건 하나만 담아 요약이 '미지정'이 되지 않게 한다. */
+const QUERY_RESPONSE = [
+  '[조건]',
+  '지역: 제주',
+  '[질의]',
+  '무엇을 하는 곳: 일출 감상',
+].join('\n');
+
+/**
+ * 구조화 갈래는 요청 하나에 generate를 두 번 부른다 — 분류 1회 + 갈래별 1회.
+ * 그래서 호출 지점을 systemInstruction으로 가른다. mockResolvedValueOnce 사슬을
+ * 쓰면 호출 순서가 테스트마다 암묵 계약이 되고, 갈래가 늘 때 전부 다시 세어야 한다.
+ */
+function mockGemini(intentResponse: string, branchResponse: string): void {
+  generate.mockImplementation((_prompt, opts) =>
+    Promise.resolve(
+      opts?.systemInstruction === INTENT_SYSTEM_INSTRUCTION
+        ? intentResponse
+        : branchResponse,
+    ),
+  );
+}
 
 /**
  * ClientsModule은 세 클라이언트를 전부 인스턴스화하고, TeiClient·QdrantSearchClient
@@ -210,7 +231,7 @@ describe('ChatController', () => {
     const replies: string[] = [];
 
     for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
-      generate.mockResolvedValue(intent);
+      mockGemini(intent, QUERY_RESPONSE);
 
       const response = await request(app.getHttpServer())
         .post('/chat')
@@ -220,11 +241,12 @@ describe('ChatController', () => {
       replies.push((response.body as ChatResponseDto).reply);
     }
 
-    expect(replies).toEqual([
-      PLAN_ITINERARY_PLACEHOLDER_REPLY,
-      RECOMMEND_PLACES_PLACEHOLDER_REPLY,
-      OTHER_REPLY,
-    ]);
+    expect(replies[0]).toContain(PLAN_REPLY_HEAD);
+    expect(replies[1]).toContain(RECOMMEND_REPLY_HEAD);
+    expect(replies[2]).toBe(OTHER_REPLY);
+    // 세 문구가 실제로 갈리는지 센다. 위 셋만으로는 두 구조화 갈래가 같은
+    // 문장이 돼도(머리말만 다르고 나머지가 뭉개져도) 통과할 수 있다.
+    expect(new Set(replies).size).toBe(3);
   });
 
   it('해석할 수 없는 응답이면 200 + other 문구가 나간다', async () => {

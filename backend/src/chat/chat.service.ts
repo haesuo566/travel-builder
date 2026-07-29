@@ -4,25 +4,20 @@ import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OTHER_REPLY } from './other/other-prompt';
-
-/**
- * 분기별 임시 문구. 실제 구현이 들어오면 해당 상수와 메서드 본문이 함께 사라진다.
- * export하는 것은 테스트 때문이지 공개 계약이기 때문이 아니다.
- */
-export const PLAN_ITINERARY_PLACEHOLDER_REPLY =
-  '일정을 새로 짜 드리는 기능은 아직 준비 중이에요. 조금만 기다려 주세요.';
-
-export const RECOMMEND_PLACES_PLACEHOLDER_REPLY =
-  '여행지를 추천해 드리는 기능은 아직 준비 중이에요. 조금만 기다려 주세요.';
+import { buildStructuredReply } from './query/query-reply';
+import { QueryStructurer } from './query/query.structurer';
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly intentClassifier: IntentClassifier) {}
+  constructor(
+    private readonly intentClassifier: IntentClassifier,
+    private readonly queryStructurer: QueryStructurer,
+  ) {}
 
   /**
-   * 메시지를 분류해 갈래로 보낸다. 각 갈래의 실제 응답 생성은 아직 없다.
+   * 메시지를 분류해 갈래로 보낸다.
    *
-   * 분류기가 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
+   * 협력자가 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
    * kind별로 500/502/503/504로 매핑한다. 여기서 삼키면 쿼터 소진이
    * "여행과 무관한 메시지"로 둔갑한다.
    */
@@ -30,10 +25,13 @@ export class ChatService {
     const intent = await this.intentClassifier.classify(request.message);
 
     switch (intent) {
+      // 두 갈래를 묶는다. 오늘 유일한 차이는 buildStructuredReply에 넘기는
+      // intent이고, 케이스를 묶으면 그 사실이 주석이 아니라 구조가 된다.
+      // 묶인 케이스에서 intent가 buildStructuredReply의 파라미터 타입으로
+      // 정확히 좁혀지므로 리터럴을 다시 적지도 않는다.
       case 'plan_itinerary':
-        return this.planItinerary(request);
       case 'recommend_places':
-        return this.recommendPlaces(request);
+        return this.replyStructured(intent, request);
       case 'other':
         return this.replyOther(request);
       default: {
@@ -47,25 +45,25 @@ export class ChatService {
   }
 
   /**
-   * TODO: 여행지 검색(TEI+Qdrant)과 일정 생성을 붙이는 자리.
-   * 붙으면 async가 되고 itinerary를 실제로 바꾼다.
+   * 구조화 결과를 사용자에게 되비춘다.
+   *
+   * TODO: TEI 임베딩 + Qdrant 검색과 일정 조립을 붙이는 자리. 그때 두 갈래가
+   * 갈라지므로 이 메서드도 함께 나뉜다 — 지금 나눠 두면 같은 본문이 둘이 된다.
+   * itinerary는 아직 손대지 않는다.
    */
-  private planItinerary(request: ChatRequestDto): ChatResponseDto {
+  private async replyStructured(
+    intent: 'plan_itinerary' | 'recommend_places',
+    request: ChatRequestDto,
+  ): Promise<ChatResponseDto> {
+    const query = await this.queryStructurer.structure(request.message);
+
     return {
-      reply: PLAN_ITINERARY_PLACEHOLDER_REPLY,
+      reply: buildStructuredReply(intent, query),
       itinerary: request.itinerary,
     };
   }
 
-  /** TODO: TEI 임베딩 + Qdrant 검색으로 장소 목록을 만드는 자리. */
-  private recommendPlaces(request: ChatRequestDto): ChatResponseDto {
-    return {
-      reply: RECOMMEND_PLACES_PLACEHOLDER_REPLY,
-      itinerary: request.itinerary,
-    };
-  }
-
-  /** 세 갈래 중 유일하게 완성된 분기다. 안내 문구만 돌려준다. */
+  /** TODO: OtherResponder에 위임하는 자리. 지금은 안내 문구만 돌려준다. */
   private replyOther(request: ChatRequestDto): ChatResponseDto {
     return {
       reply: OTHER_REPLY,
