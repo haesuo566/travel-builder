@@ -125,9 +125,13 @@ describe('ChatController', () => {
       .useValue({ generate })
       .compile();
 
+    // 셋을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
+    // 단계에서 죽으므로, 제목이 말하는 "세 협력자"를 여기서 그대로 단정한다.
     expect(moduleFixture.get(IntentClassifier)).toBeInstanceOf(
       IntentClassifier,
     );
+    expect(moduleFixture.get(QueryStructurer)).toBeInstanceOf(QueryStructurer);
+    expect(moduleFixture.get(OtherResponder)).toBeInstanceOf(OtherResponder);
   });
 
   it('reply와 itinerary를 200으로 돌려준다', async () => {
