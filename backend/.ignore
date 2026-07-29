@@ -1,0 +1,6 @@
+# Claude Code·ripgrep이 항상 존중하는 무시 목록.
+# .gitignore와 별개로 동작하므로 respectGitignore 설정과 무관하게 적용된다.
+# 검색·파일 탐색에서만 제외되며, 경로를 직접 지정한 읽기는 여전히 가능하다
+# (frontend/AGENTS.md가 node_modules/next/dist/docs/ 참조를 요구하므로 차단하지 않는다).
+
+node_modules/
