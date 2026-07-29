@@ -20,3 +20,4 @@
 | 2026-07-29 | 재개 시 미커밋 diff를 hunk 단위로 분류하는 단계 추가 | unit-work Phase 0, dev-flow Phase 0 | 근거 없는 stray 변경이 테스트 초록불 상태로 커밋에 섞인 전례 |
 | 2026-07-29 | env 인라인·`.tsx` 미수집 규칙 정밀화 | boundary-checklist, unit-implementer, regression-reviewer | 삭제된 학습 2건 반영 (호출 시점 throw, 테스트 파일명 수집 확인) |
 | 2026-07-29 | `git branch --show-current` → `git rev-parse --abbrev-ref HEAD` | unit-work Phase 1 | 이 리포의 git은 2.16 — 해당 플래그는 2.22+ 전용이라 실행 시점에 실패 |
+| 2026-07-29 | Phase 1(새 계획) 진입 확정 시, 스카우트 스폰 전에 A(전체 harness)/B(바로 구현) 경로를 고르는 "게이트 0" 추가. B는 `unit-implementer` 단독 실행 + 검증 + `quick-log.md` 한 줄로, 다음 A 실행의 `capture-learning` 입력이 된다 | dev-flow, capture-learning | 사용자가 매 세션 다른 표현으로 계획 생략을 요청해 리더가 그때그때 판단해야 했다. 같은 저장소를 공유하는 backend `tb-harness`에 동일 개념("게이트 0")이 이미 있어 어휘·구조를 맞췄다 |
