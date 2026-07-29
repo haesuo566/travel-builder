@@ -27,7 +27,7 @@ export default function PlanPage() {
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>("chat");
-  const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
 
   async function handleSend(content: string) {
     const userMessage: ChatMessage = {
@@ -71,73 +71,67 @@ export default function PlanPage() {
   }
 
   const itineraryExists = hasItinerary(itinerary);
-  const showPanel = itineraryExists && isPanelOpen;
+  const showPanel = isPanelOpen;
+  const showMobileTabBar = itineraryExists && showPanel;
 
   return (
     <div className="flex flex-1 flex-col">
-      {itineraryExists && (
-        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
-          {showPanel && (
-            <div className="flex flex-1 gap-2 md:hidden">
-              <button
-                type="button"
-                onClick={() => setActiveMobileTab("chat")}
-                className={`flex-1 rounded-xl py-2 text-sm font-medium ${
-                  activeMobileTab === "chat"
-                    ? "bg-brand text-white"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                채팅
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveMobileTab("itinerary")}
-                className={`flex-1 rounded-xl py-2 text-sm font-medium ${
-                  activeMobileTab === "itinerary"
-                    ? "bg-brand text-white"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                일정
-              </button>
-            </div>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            onClick={() => setIsPanelOpen((prev) => !prev)}
-          >
-            {showPanel ? "일정 패널 닫기" : "일정 패널 열기"}
-          </Button>
-        </div>
-      )}
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+        {showMobileTabBar && (
+          <div className="flex flex-1 gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => setActiveMobileTab("chat")}
+              className={`flex-1 rounded-xl py-2 text-sm font-medium ${
+                activeMobileTab === "chat"
+                  ? "bg-brand text-white"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              채팅
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMobileTab("itinerary")}
+              className={`flex-1 rounded-xl py-2 text-sm font-medium ${
+                activeMobileTab === "itinerary"
+                  ? "bg-brand text-white"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              일정
+            </button>
+          </div>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="md"
+          onClick={() => setIsPanelOpen((prev) => !prev)}
+        >
+          {showPanel ? "일정 패널 닫기" : "일정 패널 열기"}
+        </Button>
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         <div
           className={`w-full flex-col md:flex ${
             showPanel ? "border-r border-slate-100 md:w-[40%]" : "md:w-full"
-          } ${!showPanel || activeMobileTab === "chat" ? "flex" : "hidden"}`}
+          } ${!showMobileTabBar || activeMobileTab === "chat" ? "flex" : "hidden"}`}
         >
           <ChatPanel messages={messages} isLoading={isLoading} onSend={handleSend} />
         </div>
-        {!itineraryExists && (
-          <div
-            className={`w-full flex-col md:flex md:w-[60%] ${
-              activeMobileTab === "itinerary" ? "flex" : "hidden"
-            }`}
-          >
-            <ItineraryEmptyState />
-          </div>
-        )}
         {showPanel && (
           <div
             className={`w-full flex-col md:flex md:w-[60%] ${
-              activeMobileTab === "itinerary" ? "flex" : "hidden"
+              showMobileTabBar && activeMobileTab === "itinerary" ? "flex" : "hidden"
             }`}
           >
-            <ItineraryPanel itinerary={itinerary} />
+            {itineraryExists ? (
+              <ItineraryPanel itinerary={itinerary} />
+            ) : (
+              <ItineraryEmptyState />
+            )}
           </div>
         )}
       </div>
