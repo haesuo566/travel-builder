@@ -202,7 +202,23 @@
 
 **Q4 답변이 "계획 재작성 규모"가 아닌 이유(오케스트레이터 판정).** 초안은 `plan_itinerary`가 `none`을 낼 수 있으면 "갈래가 상태를 결정론적으로 정한다"가 무너진다고 판정했다. 그 판정은 틀렸다. 판정 입력이 `intent` 하나에서 `(intent, 목적지 매칭 여부)` 둘로 늘 뿐이고 **둘 다 Gemini 추가 호출 없이 결정론적**이다. 오히려 규칙이 단순해졌다 — `itinerary`를 만드는 코드가 `replyPlan` 한 곳뿐이고 특례가 없어져 **결정 3(단일 진실 원천)이 강화된다.** 그래서 결정 2·3·11·14와 Task 1·2·4·6의 골격은 그대로다.
 
-### 미해결 질문 — 게이트 1 이후 새로 생긴 것
+### 게이트 1 이후 새로 생긴 질문 — 둘 다 해소됨 (2026-07-29)
+
+**Q6 → 계획의 값을 채택한다.** 오케스트레이터 판정. `OTHER_REPLY`와 내용이 겹치지만 재사용하지 않은 결정 13b의 근거(other 갈래 **안쪽의** 폴백을 plan에서 import하면 두 갈래가 한 상수를 공유해 한쪽을 고칠 때 다른 쪽이 함께 움직인다)가 타당하다. 사용자에게 묻지 않았다 — 문구 값 하나이고 되돌리는 비용이 상수 한 줄이다.
+
+**Q7 → 사용자 결정: 다루지 않는다.** *"이건 추후에 추가할 기능임. 지금은 건들지마"* (2026-07-29). 계획의 가정대로 `## 리스크`에 남기고 범위 밖으로 둔다.
+
+> **⚠️ frontend 계획에 대한 경고 — 아래 Q7 항목의 "최소 완화"를 구현하면 안 된다.**
+>
+> Q7 원문이 *"프론트가 `none`을 '패널을 닫아라'가 아니라 '이번 턴에 새 일정이 없다'로 읽으면 이 문제가 사라진다"*고 적었다. **그것은 사용자의 게이트 1 Q3 결정(`recommend_places`·`other` 턴에서 패널이 사라진다)을 조용히 뒤집는 것이다.**
+>
+> 프론트가 마지막 `ready` 일정을 자체 상태로 붙들면 (1) `planStatus`가 렌더 조건이라는 이 계약의 전제가 무너지고, (2) `two-columns-one-state`가 경고하는 **두 번째 진실 원천이 프론트에 생긴다** — backend가 단일 원천을 유지하려고 판별 유니온과 단일 팩토리까지 쓴 것이 무의미해진다.
+>
+> **frontend 계획은 `none`을 받으면 패널을 닫는다.** 수정 요청이 패널을 닫는 문제는 사용자가 추후 기능으로 미룬 항목이며, 프론트에서 우회하지 않는다. 되돌릴 때는 backend의 `replyPlan`을 고치는 것이 정본 경로다.
+
+---
+
+### (원문 보존) 게이트 1 이후 제기된 질문
 
 **Q6. `PLAN_DESTINATION_UNKNOWN_REPLY`의 문구가 이대로 괜찮은가?**
 Q4 답변이 이 문구를 **필요하게 만들었다** — plan 갈래가 `none`을 내면 무언가는 말해야 한다. 계획의 값: `"어느 지역으로 떠나고 싶으신가요? '제주 2박3일'처럼 목적지를 알려주시면 일정을 만들어드릴게요."` `OTHER_REPLY`(`other-prompt.ts:9-10`)와 내용이 거의 같지만 재사용하지 않았다(결정 13b). 다르게 하려면 → **Task 4의 상수 한 줄**과 `plan-reply.spec.ts`의 전문 등가 단정 1건.
@@ -1037,7 +1053,9 @@ export function buildMockItinerary(message: string): ItineraryDto | null {
 
 - [ ] **Step 4: 구현 — 데이터를 **그대로** 옮긴다**
 
-`{ /* 데이터 — Step 4 */ }` 자리에 **`frontend/src/lib/mock/itineraries.ts:4-292`의 `seoul`·`busan`·`jeju` 세 항목을 값 그대로 옮긴다.** 세 키 이름도 그대로 쓴다.
+`{ /* 데이터 — Step 4 */ }` 자리에 **`frontend/src/lib/mock/itineraries.ts:4-291`의 `seoul`·`busan`·`jeju` 세 항목을 값 그대로 옮긴다**(`:292`는 객체를 닫는 `};`이므로 포함하지 않는다). 세 키 이름도 그대로 쓴다.
+
+> **손으로 옮기지 않는 것을 권한다.** 289줄을 전사하면 오타가 데이터 손상이 되고 컴파일러가 잡지 못한다. `frontend/src/lib/mock/itineraries.ts`의 해당 줄 범위를 파일에서 그대로 잘라 붙이고 포맷만 `npm run lint`에 맡기는 것이 안전하다.
 
 **허용되는 변경은 포맷뿐이다:**
 - 큰따옴표 → 홑따옴표 (prettier)
@@ -1296,7 +1314,11 @@ import type { ChatIntent } from './intent/chat-intent';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OtherResponder } from './other/other.responder';
 import { buildMockItinerary } from './plan/mock-itineraries';
-import { buildPlanReply, PLAN_READY_GUIDE } from './plan/plan-reply';
+import {
+  buildPlanReply,
+  PLAN_DESTINATION_UNKNOWN_REPLY,
+  PLAN_READY_GUIDE,
+} from './plan/plan-reply';
 import { RECOMMEND_REPLY_HEAD } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 import type { StructuredQuery } from './query/structured-query';
@@ -1327,15 +1349,18 @@ const STRUCTURED: StructuredQuery = {
 const OTHER_RESPONSE =
   '제주는 사계절 모두 좋아요. 어느 계절을 생각하고 계신가요?';
 
-/** plan 갈래가 이 메시지로 만드는 mock 일정의 목적지는 제주다. */
+/** 목적지 키워드가 걸리는 메시지. mock 일정의 목적지는 제주다. */
 const PLAN_MESSAGE = '제주 2박3일 일정 짜줘';
+
+/** 목적지 키워드가 하나도 걸리지 않는 일정 요청. */
+const PLAN_MESSAGE_WITHOUT_DESTINATION = '일정 짜줘';
 
 /**
  * 요청에 실려 오는 일정. 목적지를 강릉으로 둔다 — mock 일정 셋(서울·부산·제주)과
- * 겹치면 "요청을 통과시켰는가"와 "새로 만들었는가"가 목적지로 구별되지 않는다.
+ * 겹치면 "요청을 되돌려줬는가"와 "새로 만들었는가"가 목적지로 구별되지 않는다.
  *
- * 호출마다 새 리터럴을 만든다. 모듈 상수를 공유하면 아래 toBe(참조 동일성)
- * 단정이 통과 근거를 잃는다.
+ * 호출마다 새 리터럴을 만든다. 모듈 상수를 공유하면 참조 동일성 단정이
+ * 통과 근거를 잃는다.
  */
 function createRequest(message: string): ChatRequestDto {
   return {
@@ -1393,20 +1418,7 @@ beforeEach(() => {
 });
 
 describe('ChatService — 갈래별 planStatus와 itinerary', () => {
-  it('plan_itinerary는 요청에 일정이 있어도 새 일정을 ready로 돌려준다', async () => {
-    classify.mockResolvedValue('plan_itinerary');
-    const service = await createService();
-
-    const response = await service.chat(createRequest(PLAN_MESSAGE));
-
-    expect(response.planStatus).toBe('ready');
-    // 목적지가 제주면 요청의 강릉 일정이 아니라 새로 만든 일정이다.
-    expect(response.itinerary?.summary.destination).toBe('제주');
-    expect(response.itinerary?.days).toHaveLength(3);
-  });
-
-  it('plan_itinerary는 요청에 일정이 없어도 ready다', async () => {
-    // 첫 턴이 이 경로다. 여기서 none이 나오면 패널이 영구히 뜨지 않는다.
+  it('plan_itinerary는 목적지를 알아들으면 새 일정을 ready로 돌려준다', async () => {
     classify.mockResolvedValue('plan_itinerary');
     const service = await createService();
 
@@ -1416,6 +1428,7 @@ describe('ChatService — 갈래별 planStatus와 itinerary', () => {
 
     expect(response.planStatus).toBe('ready');
     expect(response.itinerary?.summary.destination).toBe('제주');
+    expect(response.itinerary?.days).toHaveLength(3);
   });
 
   it('↔ 짝: recommend_places는 같은 요청에서 none이다', async () => {
@@ -1433,19 +1446,22 @@ describe('ChatService — 갈래별 planStatus와 itinerary', () => {
     expect(response.itinerary).toBeNull();
   });
 
-  it('recommend_places는 요청의 일정을 그대로 통과시켜 ready가 된다', async () => {
-    classify.mockResolvedValue('recommend_places');
+  it('plan_itinerary는 목적지를 못 알아들으면 none이다', async () => {
+    // 기본 목적지로 폴백하지 않는다(게이트 1 Q4). 같은 intent가 메시지에 따라
+    // ready/none으로 갈리며, 판정 입력은 (intent, 목적지 매칭 여부) 둘이고
+    // 둘 다 Gemini 추가 호출 없이 결정론적이다.
+    classify.mockResolvedValue('plan_itinerary');
     const service = await createService();
-    const request = createRequest('제주 관광지 추천해줘');
 
-    const response = await service.chat(request);
+    const response = await service.chat(
+      createRequestWithoutItinerary(PLAN_MESSAGE_WITHOUT_DESTINATION),
+    );
 
-    expect(response.planStatus).toBe('ready');
-    // 참조 동일성까지 본다. 이 갈래는 일정을 손대지 않는다.
-    expect(response.itinerary).toBe(request.itinerary);
+    expect(response.planStatus).toBe('none');
+    expect(response.itinerary).toBeNull();
   });
 
-  it('other는 요청에 일정이 없으면 none이다', async () => {
+  it('other는 none이다', async () => {
     classify.mockResolvedValue('other');
     const service = await createService();
 
@@ -1455,16 +1471,39 @@ describe('ChatService — 갈래별 planStatus와 itinerary', () => {
     expect(response.itinerary).toBeNull();
   });
 
-  it('other는 요청의 일정을 그대로 통과시켜 ready가 된다', async () => {
-    // 일정을 받은 뒤 인사 한 마디를 하면 패널이 사라지는 회귀를 막는다.
-    classify.mockResolvedValue('other');
-    const service = await createService();
-    const request = createRequest('고마워');
+  const allIntents: ChatIntent[] = [
+    'plan_itinerary',
+    'recommend_places',
+    'other',
+  ];
 
-    const response = await service.chat(request);
+  it.each(allIntents)(
+    '%s는 요청의 일정을 응답에 싣지 않는다',
+    async (intent) => {
+      // 게이트 1 Q3의 결정이다. 요청에 강릉 일정을 실어 보내도 응답에 강릉이
+      // 나타나지 않는다 — plan 갈래는 자기가 만든 일정을, 나머지 둘은 null을 낸다.
+      // 이 단정이 없으면 어느 갈래가 요청을 되돌려주기 시작해도 아무도 모르고,
+      // planStatus를 만드는 지점이 조용히 둘로 늘어난다.
+      classify.mockResolvedValue(intent);
+      const service = await createService();
+      const request = createRequest(PLAN_MESSAGE);
+
+      const response = await service.chat(request);
+
+      expect(response.itinerary).not.toBe(request.itinerary);
+      expect(response.itinerary?.summary.destination).not.toBe('강릉');
+    },
+  );
+
+  it('plan_itinerary는 요청에 일정이 있어도 자기가 만든 일정을 낸다', async () => {
+    // ↔ 위 짝의 긍정형. "요청 일정이 아니다"만으로는 null을 내는 구현도 통과한다.
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    const response = await service.chat(createRequest(PLAN_MESSAGE));
 
     expect(response.planStatus).toBe('ready');
-    expect(response.itinerary).toBe(request.itinerary);
+    expect(response.itinerary?.summary.destination).toBe('제주');
   });
 });
 
@@ -1473,7 +1512,9 @@ describe('ChatService — 갈래별 reply', () => {
     classify.mockResolvedValue('plan_itinerary');
     const service = await createService();
 
-    const response = await service.chat(createRequest(PLAN_MESSAGE));
+    const response = await service.chat(
+      createRequestWithoutItinerary(PLAN_MESSAGE),
+    );
 
     expect(response.reply).toBe(
       buildPlanReply(buildMockItinerary(PLAN_MESSAGE)),
@@ -1482,6 +1523,18 @@ describe('ChatService — 갈래별 reply', () => {
     // 맺음말이 실제로 실렸는지 따로 센다.
     expect(response.reply).toContain('제주');
     expect(response.reply).toContain(PLAN_READY_GUIDE);
+  });
+
+  it('plan_itinerary는 목적지를 못 알아들으면 무엇을 알려달라고 말한다', async () => {
+    // none이면서 아무 설명이 없으면 사용자는 서비스가 고장난 것과 구별할 수 없다.
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    const response = await service.chat(
+      createRequestWithoutItinerary(PLAN_MESSAGE_WITHOUT_DESTINATION),
+    );
+
+    expect(response.reply).toBe(PLAN_DESTINATION_UNKNOWN_REPLY);
   });
 
   it('recommend_places는 구조화 결과를 되비춘 문장을 돌려준다', async () => {
@@ -1619,13 +1672,17 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
 npm test -- chat.service
 ```
 
-Expected: FAIL — **4 failed, 15 passed, 19 total**(실측). 네 건의 이유가 각각 다르므로 전부 확인한다:
+Expected: FAIL — 이유가 각각 다르므로 전부 확인한다. **건수는 직접 센다**(태스크 경계 누계는 재측정하지 않았다):
 
-| 실패 테스트 | 메시지 |
+| 실패 테스트 | 예상 메시지 |
 |---|---|
-| `plan_itinerary는 요청에 일정이 있어도 새 일정을 ready로 돌려준다` | `Expected: "제주" / Received: "강릉"` — 요청 일정을 그대로 통과시키고 있다 |
-| `plan_itinerary는 요청에 일정이 없어도 ready다` | `Expected: "ready" / Received: "none"` |
+| `plan_itinerary는 목적지를 알아들으면 새 일정을 ready로 돌려준다` | `Expected: "제주" / Received: undefined` — Task 2 이후 요청에 일정이 없으면 `none` + `null`이므로 `itinerary?.summary`가 undefined다 |
+| `plan_itinerary는 목적지를 못 알아들으면 none이다` | **통과한다** — 이미 `none`이다. 정상이며, 이 케이스가 red가 아닌 것이 이 태스크의 red 신호가 아니다 |
 | `plan_itinerary는 준비된 일정을 알리는 문장을 돌려준다` | `Received: "일정 요청으로 이해했어요 — 지역: 제주. 장소를 찾아 일정을 짜는 단계는 다음에 붙습니다."` |
+| `plan_itinerary는 목적지를 못 알아들으면 무엇을 알려달라고 말한다` | 동상 — 구조화 문구가 나온다 |
+| `plan_itinerary는 요청에 일정이 있어도 자기가 만든 일정을 낸다` | `Expected: "제주" / Received: "강릉"` — 요청 일정을 그대로 되돌려주고 있다 |
+| `it.each` `plan_itinerary는 요청의 일정을 응답에 싣지 않는다` | `expect(received).not.toBe(expected)` — 요청 일정과 참조가 같다 |
+| `it.each` `recommend_places는 …`·`other는 …` (같은 이름 2건) | 동상 |
 | `↔ 짝: plan_itinerary는 QueryStructurer를 호출하지 않는다` | `Expected number of calls: 0 / Received number of calls: 1` |
 
 `↔ 짝: other는 QueryStructurer를 호출하지 않는다`와 `↔ 짝: recommend_places는 같은 요청에서 none이다`는 **통과한다** — 이미 그렇게 동작하기 때문이다. 정상이다.
@@ -1685,8 +1742,12 @@ export class ChatService {
   }
 
   /**
-   * 일정을 돌려주는 갈래. 이 갈래만 planStatus가 'ready'로 고정된다 — 요청에
-   * 일정이 있었는지와 무관하게 새 일정을 만들어 돌려준다.
+   * 일정을 만드는 유일한 갈래. **`itinerary`가 만들어지는 지점도 여기 하나다** —
+   * 그래서 planStatus의 단일 진실 원천이 유지된다.
+   *
+   * 요청의 일정을 보지 않는다. 목적지를 알아들으면 새 일정을, 못 알아들으면
+   * null을 낸다(게이트 1 Q4). buildPlanReply가 같은 값에서 문구를 만들므로
+   * "일정은 null인데 준비됐다고 말하는" 조합이 표현 불가능하다.
    *
    * TODO: 일정 생성(TEI 임베딩 + Qdrant 검색 + 조립)이 들어올 자리.
    * buildMockItinerary 호출 하나만 교체된다. 지금 돌려주는 것은 목적지 키워드로
@@ -1703,11 +1764,14 @@ export class ChatService {
   }
 
   /**
-   * 구조화 결과를 사용자에게 되비춘다. 일정을 만들지 않으므로 요청의 일정을
-   * 그대로 통과시키고, planStatus는 그 유무에서 파생된다.
+   * 구조화 결과를 사용자에게 되비춘다. 이 갈래는 일정을 만들지 않으므로
+   * itinerary가 **항상 null**이고 planStatus도 항상 'none'이다(게이트 1 Q3).
+   *
+   * 요청의 일정을 되돌려주지 않는다. 되돌려주면 "화면에 띄울 일정이 있다"를 이
+   * 갈래도 주장하게 되고, planStatus를 만드는 지점이 둘로 늘어난다.
    *
    * TODO: 조건에 맞는 장소 목록을 붙이는 자리. 목록은 일정이 아니므로 이 갈래는
-   * 일정이 붙어도 planStatus를 만들지 않는다.
+   * 그때도 planStatus를 만들지 않는다.
    */
   private async replyRecommend(
     request: ChatRequestDto,
@@ -1716,18 +1780,18 @@ export class ChatService {
 
     return buildChatResponse(
       buildStructuredReply('recommend_places', query),
-      request.itinerary,
+      null,
     );
   }
 
   /**
-   * 대화 응답을 만든다. 이 갈래는 일정을 만들지 않으므로 itinerary가 입력 그대로
-   * 나가는 것이 최종 형태다 — 위 두 갈래와 달리 TODO가 없다.
+   * 대화 응답을 만든다. 이 갈래도 일정을 만들지 않으므로 항상 null이다 —
+   * 위 두 갈래와 달리 TODO가 없다. 이것이 최종 형태다.
    */
   private async replyOther(request: ChatRequestDto): Promise<ChatResponseDto> {
     return buildChatResponse(
       await this.otherResponder.respond(request.message),
-      request.itinerary,
+      null,
     );
   }
 }
@@ -1737,12 +1801,15 @@ export class ChatService {
 
 - [ ] **Step 4: 컨트롤러 spec을 갈라진 갈래에 맞춘다**
 
-`plan` 갈래의 reply·planStatus·Gemini 호출 수가 모두 바뀐다. 넷을 고치고 셋을 더한다.
+`plan` 갈래의 reply·planStatus·Gemini 호출 수가 모두 바뀌고, **결정 12로 세 갈래의 echo가 사라진다.** 다섯을 고치고 다섯을 더한다.
 
-**(4-1)** `src/chat/chat.controller.spec.ts:15-23`의 import 블록 중 `OtherResponder` 다음부터 `QueryStructurer` 앞까지를 아래로 **교체**(`PLAN_REPLY_HEAD`·`PLAN_REPLY_TAIL`이 빠지고 `PLAN_READY_GUIDE`·`RECOMMEND_REPLY_TAIL`이 들어온다):
+**(4-1)** `src/chat/chat.controller.spec.ts:15-23`의 import 블록 중 `OtherResponder` 다음부터 `QueryStructurer` 앞까지를 아래로 **교체**(`PLAN_REPLY_HEAD`·`PLAN_REPLY_TAIL`이 빠지고 셋이 들어온다):
 
 ```ts
-import { PLAN_READY_GUIDE } from './plan/plan-reply';
+import {
+  PLAN_DESTINATION_UNKNOWN_REPLY,
+  PLAN_READY_GUIDE,
+} from './plan/plan-reply';
 import {
   NO_CONDITIONS_SUMMARY,
   RECOMMEND_REPLY_HEAD,
@@ -1750,7 +1817,32 @@ import {
 } from './query/query-reply';
 ```
 
-**(4-2)** `it('세 분류값이 각각 다른 reply로 200이 된다', ...)` 끝의 단정 블록(`:255-263`)을 아래로 **교체**하고, **닫는 `});` 뒤에 새 테스트 셋을 이어 붙인다**:
+**(4-2)** `it('reply와 itinerary를 200으로 돌려준다', ...)`의 단정 블록 — Task 1 Step 6이 `ready` + `toEqual(itinerary)`로 만들어 둔 4줄 — 을 아래로 **교체**. 결정 12로 echo가 사라진다:
+
+```ts
+    // beforeEach가 other로 고정한다. 이 갈래는 일정을 만들지 않으므로 요청에
+    // 일정을 실어 보냈어도 응답은 none + null이다(게이트 1 Q3). 예전에는 입력을
+    // 그대로 되돌려줬고, 그 echo가 사라진 것이 이번 변경의 핵심이다.
+    expect(body.planStatus).toBe('none');
+    expect(body.itinerary).toBeNull();
+    // 요청 일정이 응답 어디에도 실리지 않는지는 아래 '요청에 실어 보낸 일정은
+    // 어느 갈래에서도 …'가 mock 셋에 없는 목적지로 센다. 여기 fixture의 목적지는
+    // 제주이고 OTHER_RESPONSE도 제주를 언급하므로 문자열 대조가 성립하지 않는다.
+    expect(itinerary.summary.destination).toBe('제주');
+```
+
+> **마지막 줄은 fixture 방어다.** `createItinerary()`의 목적지가 제주가 아니게 되면 아래 강릉 테스트의 전제가 흔들리므로, 그 전제를 여기서 못박는다. **실측 함정:** 이 자리에 `expect(JSON.stringify(body)).not.toContain(itinerary.summary.destination)`를 쓰면 `OTHER_RESPONSE`(`'제주는 사계절 모두 좋아요 …'`)가 제주를 포함해 red가 된다.
+
+**(4-3)** `it('세 분류값이 각각 다른 reply로 200이 된다', ...)`의 `.send({ message: '아무 말', itinerary })` 한 줄을 아래로 **교체**:
+
+```ts
+        // 목적지 키워드가 걸리는 메시지여야 한다. plan 갈래가 목적지를 못
+        // 알아들으면 준비 완료 문구가 아니라 안내 문구를 내므로, '아무 말'로는
+        // 세 갈래의 정상 문구를 대조할 수 없다.
+        .send({ message: '제주 2박3일 일정 짜줘', itinerary })
+```
+
+같은 테스트 끝의 단정 블록(`:255-263`)을 아래로 **교체**하고, **닫는 `});` 뒤에 새 테스트 다섯을 이어 붙인다**:
 
 ```ts
     expect(replies[0]).toContain(PLAN_READY_GUIDE);
@@ -1766,9 +1858,9 @@ import {
   });
 
   it('갈래별 planStatus와 itinerary가 HTTP를 관통한다', async () => {
-    // 일정을 싣지 않은 요청으로 세 갈래를 태운다. plan만 ready이고 나머지 둘은
-    // none이다 — 하위 spec이 각각 고정해도 그 합성이 HTTP를 관통하는지는
-    // 별개이며, 그 공백에서 두 갈래가 뒤바뀐 전례가 있다.
+    // 목적지 키워드가 걸리는 같은 메시지로 세 갈래를 태운다. plan만 ready이고
+    // 나머지 둘은 none이다 — 하위 spec이 각각 고정해도 그 합성이 HTTP를
+    // 관통하는지는 별개이며, 그 공백에서 두 갈래가 뒤바뀐 전례가 있다.
     const statuses: string[] = [];
     const destinations: (string | undefined)[] = [];
 
@@ -1808,6 +1900,41 @@ import {
     expect(body.itinerary?.days[0].places.length).toBeGreaterThan(0);
   });
 
+  it('plan 갈래도 목적지를 못 알아들으면 200 + none이 나간다', async () => {
+    // ↔ 위 짝. 기본 목적지로 폴백하지 않는다(게이트 1 Q4). reply까지 세는 이유는
+    // 설명 없는 none이 사용자에게 고장과 구별되지 않기 때문이다.
+    mockGemini('plan_itinerary', QUERY_RESPONSE);
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '일정 짜줘' })
+      .expect(200);
+
+    const body = response.body as ChatResponseDto;
+    expect(body.planStatus).toBe('none');
+    expect(body.itinerary).toBeNull();
+    expect(body.reply).toBe(PLAN_DESTINATION_UNKNOWN_REPLY);
+  });
+
+  it('요청에 실어 보낸 일정은 어느 갈래에서도 응답에 나타나지 않는다', async () => {
+    // 게이트 1 Q3의 결정이 HTTP를 관통하는지 센다. 강릉은 mock 일정 셋에 없으므로
+    // 응답 어디에도 나타나지 않아야 한다 — 나타나면 어느 갈래가 요청을
+    // 되돌려주고 있고, planStatus를 만드는 지점이 둘로 늘어난 것이다.
+    const itinerary = createItinerary();
+    itinerary.summary.destination = '강릉';
+
+    for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
+      mockGemini(intent, intent === 'other' ? OTHER_RESPONSE : QUERY_RESPONSE);
+
+      const response = await request(app.getHttpServer())
+        .post('/chat')
+        .send({ message: '제주 2박3일 일정 짜줘', itinerary })
+        .expect(200);
+
+      expect(JSON.stringify(response.body)).not.toContain('강릉');
+    }
+  });
+
   it('plan 갈래는 gemini를 분류 1회만 호출한다', async () => {
     // ↔ 'message가 1000자면 …' 케이스(other 갈래 2회)의 짝이다. 목적지를 원문
     // 키워드로 고르므로 구조화 왕복이 없다 — 결과를 버리는 왕복이 되살아나면
@@ -1823,7 +1950,7 @@ import {
   });
 ```
 
-**(4-3)** `it('질의 구조화에 실패하면 200 + 조건 미지정 요약이 나간다', ...)`의 본문(주석 마지막 줄 다음부터 끝까지)을 아래로 **교체**. 구조화를 거치는 갈래가 `recommend_places` 하나로 좁혀졌다:
+**(4-4)** `it('질의 구조화에 실패하면 200 + 조건 미지정 요약이 나간다', ...)`의 본문(주석 마지막 줄 다음부터 끝까지)을 아래로 **교체**. 구조화를 거치는 갈래가 `recommend_places` 하나로 좁혀졌다:
 
 ```ts
     // 구조화를 거치는 갈래가 recommend_places 하나로 좁혀졌다.
@@ -1852,19 +1979,35 @@ npx tsc --noEmit -p tsconfig.json
 npx eslint src --max-warnings=0
 ```
 
-Expected: PASS — **441 passed / 25 suites**(실측). 서비스 +5, 컨트롤러 +3.
+Expected: PASS — `chat.service.spec`이 14 → **22건**, `chat.controller.spec`이 **+5건**. **누계를 직접 센다.**
 
-**검출력 확인 — 이번 태스크의 핵심이다.** `chat()`의 `case 'plan_itinerary'`와 `case 'recommend_places'`의 **핸들러 호출을 서로 바꾼다**(`return this.replyRecommend(request)` / `return this.replyPlan(request)`). 과거에 정확히 이 형태의 stray 변경이 미커밋 상태로 있었고 **당시에는 분기별 응답이 없어 전 스위트가 초록불이었다.** 이제는 `↔ 짝: recommend_places는 같은 요청에서 none이다`를 포함해 여러 건이 red가 되는 것을 확인하고 원복한다. `git diff --stat`으로 원복을 증명한다.
+**검출력 확인 — 이번 태스크의 핵심이다.** 세 갈래로 나눠 확인하고 매번 원복한다.
+
+| 임시 변경 | red가 되어야 하는 것 |
+|---|---|
+| `chat()`의 `case 'plan_itinerary'`와 `case 'recommend_places'`의 **핸들러 호출을 서로 바꾼다** | `↔ 짝: recommend_places는 같은 요청에서 none이다`를 포함해 여러 건. **과거에 정확히 이 형태의 stray 변경이 미커밋 상태로 있었고 당시에는 분기별 응답이 없어 전 스위트가 초록불이었다** — 이 뮤테이션이 이제 잡히는 것이 이 태스크의 가장 중요한 산출물이다 |
+| `replyOther`의 `null`을 `request.itinerary`로 되돌린다 (결정 12를 뒤집는 형태) | `other는 요청의 일정을 응답에 싣지 않는다`(it.each 1건) · `reply와 itinerary를 200으로 돌려준다` · `요청에 실어 보낸 일정은 어느 갈래에서도 …` |
+| `replyPlan`에 `await this.queryStructurer.structure(request.message)`를 되살린다 | `↔ 짝: plan_itinerary는 QueryStructurer를 호출하지 않는다` · `plan 갈래는 gemini를 분류 1회만 호출한다` |
+
+원복은 `git diff --stat`이 비는 것으로 증명한다.
 
 - [ ] **Step 6: 커밋**
 
 ```bash
 git add src/chat/chat.service.ts src/chat/chat.service.spec.ts src/chat/chat.controller.spec.ts
-git commit -m "feat(backend): plan 갈래를 갈라내 mock 일정을 돌려준다
+git commit -m "feat(backend): plan 갈래만 일정을 만들게 한다
 
 직전 실행이 두 갈래를 한 case로 묶은 것은 차이가 인자 하나뿐이었기 때문이고,
-갈라지면 다시 나눈다고 예고했다. 이번이 그 실행이다 — plan만 일정을 만들고
-recommend는 요청의 일정을 통과시킨다.
+갈라지면 다시 나눈다고 예고했다. 이번이 그 실행이다.
+
+itinerary를 만드는 코드가 replyPlan 한 곳뿐이다. recommend·other는 요청의
+일정을 되돌려주지 않는다 — 되돌려주면 '화면에 띄울 일정이 있다'를 세 갈래가
+각자 주장하게 되고 planStatus를 만드는 지점이 셋으로 늘어난다. 대가는 일정을
+받은 직후 '고마워' 한 마디에 패널이 사라지는 것이고, 사용자가 이 결과를 알고
+선택했다(게이트 1 Q3).
+
+목적지를 못 알아들으면 none이다. 폴백하면 '일정 짜줘' 한 마디에 엉뚱한
+도시의 일정이 뜨고 사용자는 자기가 요청한 것이라고 믿는다(게이트 1 Q4).
 
 돌려주는 것은 목적지 키워드로 고른 고정 데이터이고 일정 생성이 아니다.
 '일정 자리 채우기'다 — 기간·동반자·조건을 전혀 반영하지 않는다.
@@ -1886,7 +2029,7 @@ plan 갈래는 QueryStructurer를 부르지 않는다. 목적지를 원문 키�
 
 `plan_itinerary`가 `buildStructuredReply`를 더 이상 부르지 않으므로 `isPlan` 분기 2개가 도달 불가가 되고, spec 3건이 죽은 경로에 초록불을 준다. `PLAN_REPLY_TAIL`은 일정을 실제로 돌려준 뒤 거짓 문장이기도 하다.
 
-> **미해결 질문 Q1이 이 태스크 전체다.** 사용자가 "문장 틀은 확인된 사항이므로 두라"고 하면 **이 태스크를 삭제한다.** 그 경우 도달 불가 코드 3건이 남고, 그 사실을 `## 리스크`에 옮긴다.
+> **게이트 1 Q1에서 사용자가 "지운다"로 확정했다.** 이 태스크를 그대로 실행한다.
 
 **Files:**
 - Modify: `src/chat/query/query-reply.ts`, `src/chat/chat.service.ts`
@@ -2092,7 +2235,7 @@ import { buildRecommendReply } from './query/query-reply';
 **(4-4)** 같은 파일 `replyRecommend`의 `return` 블록을 아래 **한 줄로 교체**:
 
 ```ts
-    return buildChatResponse(buildRecommendReply(query), request.itinerary);
+    return buildChatResponse(buildRecommendReply(query), null);
 ```
 
 - [ ] **Step 5: 옮겨 온 갈래 대조 짝을 `plan-reply.spec.ts`에 더한다**
@@ -2108,10 +2251,14 @@ import 'reflect-metadata';
 import { buildRecommendReply } from '../query/query-reply';
 import { EMPTY_CONDITIONS } from '../query/structured-query';
 import { buildMockItinerary } from './mock-itineraries';
-import { buildPlanReply, PLAN_READY_GUIDE } from './plan-reply';
+import {
+  buildPlanReply,
+  PLAN_DESTINATION_UNKNOWN_REPLY,
+  PLAN_READY_GUIDE,
+} from './plan-reply';
 ```
 
-같은 파일의 마지막 `it('화면 배치를 문구에 담지 않는다', ...)` **뒤에** 추가:
+같은 파일의 `it('화면 배치를 문구에 담지 않는다', ...)` **뒤에**(첫 `describe`가 닫히기 **전에**) 추가:
 
 ```ts
 
@@ -2140,9 +2287,11 @@ npm run build
 npm run test:e2e
 ```
 
-Expected: PASS — **440 passed / 25 suites**(실측). Task 5 대비 `query-reply.spec`이 9→7로 2건 줄고 `plan-reply.spec`이 3→4로 1건 늘어 순 −1이다. `npm run build` 성공, `npm run test:e2e` **6 passed / 2 suites (변화 없음)**.
+Expected: PASS — **최종 상태이므로 이 계획이 재현한 수치와 대조한다: 454 passed / 26 suites** · `npm run build` 성공 · `npm run test:e2e` **6 passed / 2 suites (변화 없음)**. Task 5 대비 `query-reply.spec`이 9→7로 2건 줄고 `plan-reply.spec`이 5→6으로 1건 늘어 순 −1이다.
 
-**검출력 확인:** `RECOMMEND_REPLY_HEAD`를 `'일정 요청으로 이해했어요'`(삭제한 plan 머리말)로 임시 변경하면 `↔ 짝: 추천 갈래의 문구와 겹치지 않는다`가 red가 되지 않는지 본다 — plan 문구는 완전히 다른 틀이므로 여전히 통과해야 하고, 대신 `추천 문장 틀로 시작하고 끝난다`가 red가 된다. 원복 후 `git diff --stat`을 확인한다.
+스위트별 최종 실측(대조용): `chat-response.dto.spec` 5 · `chat-request.dto.spec` 5 · `mock-itineraries.spec` 17 · `plan-reply.spec` 6 · `query-reply.spec` 7 · `chat.service.spec` 22 · `chat.controller.spec` 21. **누계가 454가 아니면 어딘가 이탈이다** — 어느 스위트인지 위 표로 좁힌다.
+
+**검출력 확인:** `RECOMMEND_REPLY_HEAD`를 `'일정 요청으로 이해했어요'`(삭제한 plan 머리말)로 임시 변경하면 `↔ 짝: 추천 갈래의 문구와 겹치지 않는다`가 red가 되지 **않는지** 본다 — plan 문구는 완전히 다른 틀이므로 여전히 통과해야 하고, 대신 `추천 문장 틀로 시작하고 끝난다`가 red가 된다. 원복 후 `git diff --stat`을 확인한다.
 
 - [ ] **Step 7: 커밋**
 
@@ -2176,7 +2325,8 @@ PLAN_REPLY_TAIL('장소를 찾아 일정을 짜는 단계는 다음에 붙습니
 ## 최종 검증
 
 - [ ] `npx tsc --noEmit -p tsconfig.json` 통과
-- [ ] `npm test` 전체 통과 — **440 passed / 25 suites** (기준선 409/22 → 테스트 +31, 스위트 +3). 태스크별 실측 누계: T1 **414/23** · T2 **415/23** · T3 **430/24** · T4 **433/25** · T5 **441/25** · T6 **440/25**
+- [ ] `npm test` 전체 통과 — **454 passed / 26 suites** (기준선 409/22 → 테스트 +45, 스위트 +4). 이 수치는 최종 상태를 실제로 재현해 측정했다. **태스크별 중간 누계는 측정하지 않았으므로 이 문서에 없다** — 구현자가 태스크 경계마다 직접 세고 마지막에 이 값과 대조한다(`plan-summary-table-overstates-measurement`: 측정하지 않은 수치를 적으면 다음 실행이 검증된 값으로 읽는다)
+- [ ] 스위트별 대조 — `chat-response.dto.spec` **5** · `chat-request.dto.spec` **5** · `mock-itineraries.spec` **17** · `plan-reply.spec` **6** · `query-reply.spec` **7**(9→7) · `chat.service.spec` **22**(14→22) · `chat.controller.spec` **21**(15→21). 누계가 어긋나면 어느 스위트인지 여기서 좁힌다
 - [ ] `npx eslint src --max-warnings=0` 통과
 - [ ] `npm run build` 성공
 - [ ] `npm run test:e2e` 통과 — **6 passed / 2 suites, 변화 없음**. e2e는 `POST /chat`을 타지 않는다(`test/external-service.e2e-spec.ts:22-23`)
@@ -2185,11 +2335,14 @@ PLAN_REPLY_TAIL('장소를 찾아 일정을 짜는 단계는 다음에 붙습니
 - [ ] **응답 객체 리터럴이 `buildChatResponse` 안의 두 개뿐이다** — `grep -rn "planStatus:" src --include=*.ts | grep -v spec`이 `dto/chat-response.dto.ts`의 2줄만 내야 한다. 다른 파일이 나오면 불변식이 다시 여러 곳에서 세워지고 있다
 - [ ] **`planStatus: 'ready'` + `itinerary: null` 조합을 만들 수 없다 — 단 방어가 두 겹이고 타입은 그중 한 겹뿐이다.** (1) `buildChatResponse`의 삼항 한쪽을 반대 값으로 바꿔 보면 컴파일 에러가 난다(판별 유니온이 막는다 — 결정 2·3이 작동하는 증거). (2) **타입이 막지 못하는 경로가 하나 있다:** 런타임 `null`이 슬롯을 통과하는 경우다. `curl`/supertest로 `{"message":"안녕","itinerary":null}`을 보내 응답이 `{"planStatus":"none","itinerary":null}`인지 **실제로 확인한다.** `"ready"`가 나오면 결정 4a의 결함이 되살아난 것이다
 - [ ] **`grep -n "itinerary ?? null" src/chat/dto/chat-response.dto.ts`가 1건이다** — `=== undefined` 판정으로 되돌아가지 않았는지 센다. 이 한 줄이 위 (2)의 유일한 방어다
-- [ ] `PLAN_REPLY_HEAD`·`PLAN_REPLY_TAIL`·`buildStructuredReply`가 저장소에서 **완전히 사라졌다** (`grep -rn` 0건). Task 6을 실행한 경우에만 해당
+- [ ] **`itinerary`를 만드는 지점이 `replyPlan` 하나뿐이다** — `grep -n "request.itinerary" src/chat/chat.service.ts`가 **0건**이어야 한다. 한 건이라도 나오면 어느 갈래가 요청 일정을 되돌려주고 있고 결정 12가 뒤집힌 것이다
+- [ ] **`buildMockItinerary`에 기본 목적지 폴백이 없다** — `grep -rn "DEFAULT_DESTINATION" src --include=*.ts`가 **0건**. 폴백이 되살아나면 결정 13(게이트 1 Q4)이 뒤집힌다
+- [ ] `PLAN_REPLY_HEAD`·`PLAN_REPLY_TAIL`·`buildStructuredReply`가 **코드에서 사라졌다** — `grep -rn "PLAN_REPLY_HEAD\|PLAN_REPLY_TAIL\|buildStructuredReply" src --include=*.ts`의 매칭이 **`query-reply.ts`의 doc 주석 1건뿐**이다(무엇이 왜 사라졌는지 남긴 줄). 실행되는 코드에 남으면 이탈이다
 - [ ] **`fellBackToRawMessage`가 응답 경로에 없다** — `grep -rn "fellBackToRawMessage" src --include=*.ts`가 `structured-query.ts`·`query.structurer.ts`·spec들만 내고 `chat-response.dto.ts`·`chat.service.ts`에는 없다
-- [ ] **갈래 × planStatus 표 8행 전부에 짝지은 테스트가 존재한다** — 표의 두 테스트 열을 실제 테스트 제목과 하나씩 대조한다. 3·5행(둘 다 `none`)은 planStatus 축에서 구분 테스트를 두지 않는 것이 **판정**이며 그 근거가 표 아래 2번 항목에 있다
-- [ ] **에러 처리 표 14행 전부에 짝지은 테스트가 존재한다** — 행 수와 테스트 수를 센다. 일부 행만 세지 않는다
-- [ ] `src/chat/plan/mock-itineraries.ts`의 일정 3개가 `frontend/src/lib/mock/itineraries.ts:4-292`와 **값이 같다** — 따옴표·줄바꿈 외 차이가 없다
+- [ ] **갈래 × planStatus 표 6행 전부에 짝지은 테스트가 존재한다** — 표의 두 테스트 열을 실제 테스트 제목과 하나씩 대조한다. 2·3·4·6행이 모두 `none` + `null`이고 응답 필드로 구별되지 않으므로 **reply로 구별한다**; 3·4행을 planStatus 축에서 구분하지 않는 것은 **판정**이며 근거가 표 아래 2번 항목에 있다
+- [ ] **에러 처리 표 15행 전부에 짝지은 테스트가 존재한다** — 행 수와 테스트 수를 센다. 일부 행만 세지 않는다
+- [ ] `src/chat/plan/mock-itineraries.ts`의 일정 3개가 `frontend/src/lib/mock/itineraries.ts:4-291`과 **값이 같다** — 따옴표·줄바꿈 외 차이가 없다
+- [ ] **whitelist 관측이 실제로 옮겨졌다** — `dto/chat-request.dto.spec.ts`가 존재하고 `DTO에 없는 최상위 속성을 제거한다`·`중첩된 일정 안의 속성도 제거한다` 2건이 통과한다. 이 파일이 없으면 whitelist 계약이 저장소에서 **완전히 무보호**다(결정 17)
 - [ ] `frontend/` 파일이 **하나도 변경되지 않았다** — 이 계획은 backend만 바꾼다. 워크스페이스별로 커밋을 나눈다
 - [ ] 미추적 `.ignore` 3개가 **커밋되지 않았다** (`git log --stat`에 나타나지 않아야 한다)
 
@@ -2203,10 +2356,12 @@ PLAN_REPLY_TAIL('장소를 찾아 일정을 짜는 단계는 다음에 붙습니
 
 - **`plan_itinerary`가 일정과 새 문구를 함께 낸다** — 절차: `{"message": "제주 2박3일 일정 짜줘"}`. 통과 조건: `planStatus`가 `"ready"`, `itinerary.summary.destination`이 `"제주"`, `itinerary.days`가 3개, `reply`가 `제주 2박 3일 일정을 준비했어요! Day별 코스를 확인해보세요.`다. 서버 로그에 `질의 구조화` 관련 호출이 **없어야 한다**(이 갈래는 Gemini를 분류 1회만 부른다).
 
-- **`recommend_places`·`other`가 요청 일정을 통과시킨다** — 절차: 위 응답의 `itinerary`를 그대로 실어 `{"message": "부산 맛집 추천해줘", "itinerary": {…제주 일정…}}`을 보낸다. 통과 조건: `planStatus`가 `"ready"`이고 `itinerary`가 **보낸 것과 동일**하다(제주 일정이 그대로 돌아온다 — 부산 일정으로 바뀌지 **않는다**). 이어서 `{"message": "고마워", "itinerary": {…}}`도 같은 결과여야 한다. 이 두 건이 결정 12(미해결 질문 Q3)가 의도한 동작인지 사용자가 판단한다.
+- **`recommend_places`·`other`는 요청 일정을 되돌려주지 않는다** — 절차: 위 응답의 `itinerary`를 그대로 실어 `{"message": "부산 맛집 추천해줘", "itinerary": {…제주 일정…}}`을 보내고, 이어서 `{"message": "고마워", "itinerary": {…제주 일정…}}`을 보낸다. 통과 조건: **두 응답 모두** `planStatus`가 `"none"`이고 `itinerary`가 `null`이다. 보낸 제주 일정이 응답에 **나타나지 않아야 한다.** 이것이 게이트 1 Q3에서 사용자가 선택한 동작이다 — **결과로 프론트에서 패널이 닫힌다.** 그 화면 동작이 의도한 것인지 사용자가 판단한다.
 
 - **mock 일정이 실제 생성으로 오인될 여지를 사용자가 인지한다** — 절차: `{"message": "제주 5박6일 혼자 갈 거야 일정 짜줘"}`. 통과 조건: 응답 일정이 여전히 `2박 3일 · 성인 2명`이고 장소가 위 요청과 동일하다. **이것이 정상 동작이다.** 기간·동반자를 반영하지 않는다는 사실을 사용자가 확인해야 한다 — 반영될 것으로 기대하면 이 단계가 완료로 오인된다.
 
-- **목적지를 못 알아들으면 서울 일정이 나간다** — 절차: `{"message": "여행 일정 짜줘"}`(목적지 없음). 통과 조건: `planStatus`가 `"ready"`이고 `itinerary.summary.destination`이 `"서울"`이다. 미해결 질문 Q4가 이 동작에 대한 것이다.
+- **목적지를 못 알아들으면 일정을 만들지 않는다** — 절차: `{"message": "여행 일정 짜줘"}`(목적지 없음). 통과 조건: 200이고 `planStatus`가 `"none"`, `itinerary`가 `null`, `reply`가 `어느 지역으로 떠나고 싶으신가요? '제주 2박3일'처럼 목적지를 알려주시면 일정을 만들어드릴게요.`다. `"ready"`나 서울 일정이 나오면 게이트 1 Q4에서 사용자가 거부한 폴백이 되살아난 것이다. **문구 자체는 미해결 질문 Q6이다** — 이 응답을 보고 사용자가 문구를 확정한다.
+
+- **일정 수정 요청이 패널을 닫는 것을 사용자가 확인한다 (미해결 질문 Q7)** — 절차: 먼저 `{"message": "제주 2박3일 일정 짜줘"}`로 `ready`를 받고, 이어서 `{"message": "맛집 위주로 바꿔줘"}`를 보낸다. 통과 조건: 두 번째 응답이 `planStatus: "none"` + `itinerary: null`이다(`"맛집 위주로"`는 `plan_itinerary`로 분류되지만 목적지 키워드가 없다). **이것이 현재 설계의 결과이며 고치려는 문제와 같은 종류의 결과다.** 사용자가 이 동작을 받아들일지, Q7을 이번에 다룰지 판단한다.
 
 - **프론트엔드가 아직 이 응답을 소비하지 못한다** — 절차: `frontend`를 현재 상태로 띄우고 채팅을 보낸다. 통과 조건: **패널 동작이 변하지 않는다**(mock 초기 일정이 그대로 뜬다). `frontend/src/lib/api/itinerary.ts:68`이 `as ScenarioResult` 캐스트라 새 필드가 조용히 무시되기 때문이며, 이 상태는 **정상이고 frontend 계획이 처리한다.** 프론트가 깨지면(에러 말풍선·빈 화면) 그건 예상 밖이므로 보고한다.
