@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChatPanel } from "@/components/planner/ChatPanel";
+import { ItineraryEmptyState } from "@/components/planner/ItineraryEmptyState";
 import { ItineraryPanel } from "@/components/planner/ItineraryPanel";
-import { getItinerary, sendMessage } from "@/lib/api/itinerary";
+import { sendMessage } from "@/lib/api/itinerary";
+import { hasItinerary, resolveMobileTab, type MobileTab } from "@/lib/plan-view";
 import type { ChatMessage, Itinerary } from "@/lib/types";
 
 const INITIAL_ASSISTANT_MESSAGE: ChatMessage = {
@@ -23,17 +25,9 @@ export default function PlanPage() {
     INITIAL_ASSISTANT_MESSAGE,
   ]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeMobileTab, setActiveMobileTab] = useState<"chat" | "itinerary">(
-    "chat"
-  );
-
-  useEffect(() => {
-    getItinerary().then(setItinerary);
-  }, []);
+  const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>("chat");
 
   async function handleSend(content: string) {
-    if (!itinerary) return;
-
     const userMessage: ChatMessage = {
       id: createMessageId(),
       role: "user",
@@ -52,7 +46,7 @@ export default function PlanPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
       setItinerary(result.itinerary);
-      setActiveMobileTab("itinerary");
+      setActiveMobileTab(resolveMobileTab(result.planStatus));
     } catch (error) {
       // 실패한 사용자 메시지는 목록에 그대로 둔다 — 되돌리면 사용자가 무엇을
       // 보냈는지 사라진다. 안내는 말풍선으로 덧붙이고 입력창은 finally에서
@@ -71,40 +65,34 @@ export default function PlanPage() {
     }
   }
 
-  if (!itinerary) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
-        불러오는 중...
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex gap-2 border-b border-slate-100 px-4 py-3 md:hidden">
-        <button
-          type="button"
-          onClick={() => setActiveMobileTab("chat")}
-          className={`flex-1 rounded-xl py-2 text-sm font-medium ${
-            activeMobileTab === "chat"
-              ? "bg-brand text-white"
-              : "bg-slate-100 text-slate-600"
-          }`}
-        >
-          채팅
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveMobileTab("itinerary")}
-          className={`flex-1 rounded-xl py-2 text-sm font-medium ${
-            activeMobileTab === "itinerary"
-              ? "bg-brand text-white"
-              : "bg-slate-100 text-slate-600"
-          }`}
-        >
-          일정
-        </button>
-      </div>
+      {hasItinerary(itinerary) && (
+        <div className="flex gap-2 border-b border-slate-100 px-4 py-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setActiveMobileTab("chat")}
+            className={`flex-1 rounded-xl py-2 text-sm font-medium ${
+              activeMobileTab === "chat"
+                ? "bg-brand text-white"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            채팅
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMobileTab("itinerary")}
+            className={`flex-1 rounded-xl py-2 text-sm font-medium ${
+              activeMobileTab === "itinerary"
+                ? "bg-brand text-white"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            일정
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div
@@ -119,7 +107,11 @@ export default function PlanPage() {
             activeMobileTab === "itinerary" ? "flex" : "hidden"
           }`}
         >
-          <ItineraryPanel itinerary={itinerary} />
+          {hasItinerary(itinerary) ? (
+            <ItineraryPanel itinerary={itinerary} />
+          ) : (
+            <ItineraryEmptyState />
+          )}
         </div>
       </div>
     </div>
