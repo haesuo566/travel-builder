@@ -85,8 +85,9 @@ description: "승인된 구현 계획(docs/plans/)의 유닛을 실제로 구현
 
 1. 브랜치를 확인한다:
    ```bash
-   git branch --show-current
+   git rev-parse --abbrev-ref HEAD
    ```
+   이 리포의 git은 2.16이다. `git branch --show-current`는 2.22 이상에서만 동작하므로 쓰지 않는다. 다른 git 명령을 쓸 때도 최신 플래그를 가정하지 않는다 — 실패하면 `git <cmd> -h`로 이 버전이 지원하는 형태를 확인한다.
    - 기본 브랜치(`main`)면 계획 제목에서 이름을 만들어 생성한다: `feat/<slug>`, `fix/<slug>`
    - 이미 의미 있는 이름의 피처 브랜치면 그대로 쓴다
    - `main`에 직접 커밋하지 않는다

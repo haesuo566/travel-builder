@@ -19,3 +19,4 @@
 | 2026-07-29 | 계획 템플릿에 `## 최종 검증` 절 추가, 리뷰가 이 절을 파싱하도록 연결 | plan-architect, fast-plan, lite-review | 절이 없으면 리뷰가 게이트를 임의 구성해 계획만 아는 실측 항목이 빠짐 |
 | 2026-07-29 | 재개 시 미커밋 diff를 hunk 단위로 분류하는 단계 추가 | unit-work Phase 0, dev-flow Phase 0 | 근거 없는 stray 변경이 테스트 초록불 상태로 커밋에 섞인 전례 |
 | 2026-07-29 | env 인라인·`.tsx` 미수집 규칙 정밀화 | boundary-checklist, unit-implementer, regression-reviewer | 삭제된 학습 2건 반영 (호출 시점 throw, 테스트 파일명 수집 확인) |
+| 2026-07-29 | `git branch --show-current` → `git rev-parse --abbrev-ref HEAD` | unit-work Phase 1 | 이 리포의 git은 2.16 — 해당 플래그는 2.22+ 전용이라 실행 시점에 실패 |
