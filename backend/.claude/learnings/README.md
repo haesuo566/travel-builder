@@ -2,7 +2,9 @@
 
 `compounder`가 실행마다 쌓는 복리 자산. `plan-writer` · `implementer` · `reviewer`가 **작업 시작 전에 이 디렉터리 전체를 읽는다.**
 
-지금은 비어 있다 (이 README 외에). 첫 `compound` 단계부터 채워진다.
+**이전 하네스의 학습 20개는 `c90e45a "삭제"` 커밋에서 전량 삭제됐고, `42cbea3`이 새 하네스를 구성하면서 학습을 비운 채 시작했다.** 다만 그 20개 중 **승급까지 갔던 것들의 내용은 새 스킬 본문이 이어받았다** — typed-lint 제약·로컬 `.env` 가짜 통과·실패 귀속·계획 코드 블록 스냅샷·저널 대조 등이 `tb-code-review`·`tb-plan-writing`·`tb-harness`·`backend-constraints.md`에 살아 있다. 승급하지 못한 나머지는 사라졌다.
+
+살아 있는 소스 주석이 삭제된 학습을 아직 이름으로 참조한다: `src/chat/query/structured-query.ts:51`의 `two-columns-one-state` (이 학습은 어느 스킬에도 흡수되지 않았다). `src/chat/query/query.structurer.ts:39`의 `failure-attribution`은 내용이 `tb-code-review` 정확성 축에 남아 있다.
 
 ## 이 디렉터리의 목적
 
