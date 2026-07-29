@@ -253,6 +253,9 @@ describe('ChatController', () => {
     }
 
     expect(replies[0]).toContain(PLAN_REPLY_HEAD);
+    // fixture의 [조건]이 실제로 파싱돼 화면까지 실렸는지 센다. 이 줄이 없으면
+    // 구조화 폴백('조건: 미지정')이 발동해도 위 단정들이 전부 통과한다.
+    expect(replies[0]).toContain('지역: 제주');
     expect(replies[1]).toContain(RECOMMEND_REPLY_HEAD);
     expect(replies[2]).toBe(OTHER_RESPONSE);
     // 세 문구가 실제로 갈리는지 센다. 위 셋만으로는 두 구조화 갈래가 같은
