@@ -2,6 +2,11 @@ import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import { ExternalServiceError } from '../clients/external-service.error';
+import type {
+  QdrantSearchOptions,
+  TourSearchHit,
+} from '../clients/qdrant/qdrant.client';
+import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
 import { ChatService } from './chat.service';
 import type { ChatRequestDto } from './dto/chat-request.dto';
@@ -30,9 +35,39 @@ const classify = jest.fn<Promise<ChatIntent>, [string]>();
 const structure = jest.fn<Promise<StructuredQuery>, [string]>();
 const respond = jest.fn<Promise<string>, [string]>();
 const embedQuery = jest.fn<Promise<number[]>, [string]>();
+const search = jest.fn<
+  Promise<TourSearchHit[]>,
+  [number[], QdrantSearchOptions?]
+>();
 
 /** TeiClient가 돌려주는 벡터. 차원이 로그에 실리는지 세려고 길이를 3으로 둔다. */
 const EMBEDDING = [0.1, 0.2, 0.3];
+
+/**
+ * Qdrant hit. payload 전 필드를 채우는 이유는 TourContentPayload가 옵셔널 필드를
+ * 두지 않기 때문이다 — 표시에 쓰는 title만 인자로 받는다.
+ */
+function createHit(title: string): TourSearchHit {
+  return {
+    id: `point-${title}`,
+    score: 0.9,
+    payload: {
+      contentid: `content-${title}`,
+      contenttypeid: '12',
+      ldong_regn_cd: '50',
+      ldong_signgu_cd: '130',
+      lcls_systm1: 'AC',
+      lcls_systm2: 'AC01',
+      lcls_systm3: 'AC0101',
+      title,
+      mapx: '126.9',
+      mapy: '33.4',
+    },
+  };
+}
+
+/** 기본 검색 결과. 이름이 문구까지 도달하는지 세려고 둘을 둔다. */
+const HITS = [createHit('성산일출봉'), createHit('우도')];
 
 const STRUCTURED: StructuredQuery = {
   queryText: '무엇을 하는 곳: 일출 감상',
@@ -102,6 +137,7 @@ async function createService(): Promise<ChatService> {
       { provide: QueryStructurer, useValue: { structure } },
       { provide: OtherResponder, useValue: { respond } },
       { provide: TeiClient, useValue: { embedQuery } },
+      { provide: QdrantSearchClient, useValue: { search } },
     ],
   }).compile();
   return moduleRef.get(ChatService);
@@ -116,9 +152,13 @@ function quotaFailure(): ExternalServiceError {
  * no-unsafe-member-access에 걸린다 — unknown을 거쳐 좁힌다
  * (query.structurer.spec.ts:42-45와 같은 관용구).
  */
-function firstMessage(spy: jest.SpyInstance): string {
+function logMessages(spy: jest.SpyInstance): string[] {
   const calls = spy.mock.calls as unknown as unknown[][];
-  return String(calls[0][0]);
+  return calls.map((call) => String(call[0]));
+}
+
+function firstMessage(spy: jest.SpyInstance): string {
+  return logMessages(spy)[0];
 }
 
 let debugLog: jest.SpyInstance;
@@ -129,6 +169,7 @@ beforeEach(() => {
   structure.mockReset().mockResolvedValue(STRUCTURED);
   respond.mockReset().mockResolvedValue(OTHER_RESPONSE);
   embedQuery.mockReset().mockResolvedValue(EMBEDDING);
+  search.mockReset().mockResolvedValue(HITS);
   // 스파이를 걸지 않으면 임베딩 갈래를 도는 테스트마다 콘솔이 로그로 덮인다.
   debugLog = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
   warnLog = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
@@ -425,6 +466,99 @@ describe('ChatService — 질의 임베딩', () => {
   });
 });
 
+describe('ChatService — 장소 검색', () => {
+  it('recommend_places는 임베딩 벡터로 Qdrant를 한 번 검색한다', async () => {
+    // 벡터를 만들어 놓고 검색에 넘기지 않으면 TEI 왕복이 통째로 낭비된다.
+    // 넘기는 값이 embedQuery의 산출물 자체인지까지 본다 — 다른 배열을 넘기면
+    // 질의와 무관한 이웃이 검색되고 응답은 여전히 200이다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(search).toHaveBeenCalledTimes(1);
+    const [vector] = search.mock.calls[0];
+    expect(vector).toBe(EMBEDDING);
+  });
+
+  it('검색 개수를 10으로 고정한다', async () => {
+    // 상수에서 읽지 않고 리터럴로 센다. 소스에서 가져오면 개수를 바꿔도
+    // 테스트가 따라 움직여 고정값이 옮겨진 사실을 아무도 못 잡는다
+    // (chat.controller.spec.ts의 1000자 경계와 같은 판단).
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    const [, opts] = search.mock.calls[0];
+    expect(opts?.limit).toBe(10);
+  });
+
+  it('↔ 짝: 벡터를 만들지 못하면 검색하지 않는다', async () => {
+    // 공백뿐인 질의는 임베딩을 건너뛴다. 벡터 없이 검색을 강행하면 무엇을
+    // 넘길지가 없어 빈 배열이나 0 벡터를 지어내게 되고, 그렇게 얻은 이웃은
+    // 질의와 아무 관계가 없는데 화면에는 추천으로 나간다.
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '   ',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    await service.chat(createRequest('   '));
+
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('구조화 폴백이어도 벡터가 있으면 검색한다', async () => {
+    // 폴백은 "질의를 못 만들었다"가 아니라 "원문을 질의로 쓴다"는 계약이다.
+    // 위 짝의 기준이 fellBackToRawMessage가 아니라 벡터의 유무라는 사실을
+    // 여기서 고정한다 — 폴백을 기준으로 끊으면 검색 가치가 있는 원문 질의가
+    // 통째로 검색되지 않는다.
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '제주 일출 명소 추천',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  const nonSearchingIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+
+  it.each(nonSearchingIntents)('↔ 짝: %s는 검색하지 않는다', async (intent) => {
+    // 임베딩하지 않는 갈래에는 검색할 벡터가 없다. 부르면 결과를 버리는
+    // Qdrant 왕복이 하나 늘고, 그 왕복의 실패가 돌려줄 수 있었던 요청을
+    // 502로 만든다(임베딩 짝과 같은 이유).
+    classify.mockResolvedValue(intent);
+    const service = await createService();
+
+    await service.chat(createRequest(PLAN_MESSAGE));
+
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it('검색된 hit 수를 로그로 남긴다', async () => {
+    // 버려진 hit(payload 파싱 실패·빈 title)이 있으면 화면의 이름 개수와
+    // 이 수가 어긋난다. 그 어긋남을 볼 수 있는 지점이 이 로그 하나다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(logMessages(debugLog)).toContainEqual(
+      expect.stringContaining(`hit=${HITS.length}`),
+    );
+  });
+});
+
 describe('ChatService — 대화 위임', () => {
   it('other 갈래는 OtherResponder를 message만으로 한 번 호출한다', async () => {
     classify.mockResolvedValue('other');
@@ -484,6 +618,24 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
     const failure = new ExternalServiceError('tei', 'unavailable', '연결 실패');
     classify.mockResolvedValue('recommend_places');
     embedQuery.mockRejectedValue(failure);
+    const service = await createService();
+
+    await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(
+      failure,
+    );
+  });
+
+  it('QdrantSearchClient가 던진 ExternalServiceError를 삼키지 않는다', async () => {
+    // 협력자 다섯에 대해 대칭으로 고정한다. 여기서 삼키면 Qdrant 장애가
+    // 200 + "조건에 맞는 장소를 찾지 못했어요"가 되고, 사용자는 자기 조건이
+    // 까다로웠다고 이해한다 — 장애를 사용자 잘못으로 오청구하는 셈이다.
+    const failure = new ExternalServiceError(
+      'qdrant',
+      'unavailable',
+      '연결 실패',
+    );
+    classify.mockResolvedValue('recommend_places');
+    search.mockRejectedValue(failure);
     const service = await createService();
 
     await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(

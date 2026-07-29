@@ -8,6 +8,11 @@ import { configureApp } from '../app.setup';
 import { ExternalServiceError } from '../clients/external-service.error';
 import type { GeminiGenerateOptions } from '../clients/gemini/gemini.client';
 import { GeminiClient } from '../clients/gemini/gemini.client';
+import type {
+  QdrantSearchOptions,
+  TourSearchHit,
+} from '../clients/qdrant/qdrant.client';
+import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
 import { ChatModule } from './chat.module';
 import type { ChatResponseDto } from './dto/chat-response.dto';
@@ -71,6 +76,33 @@ const generate = jest.fn<Promise<string>, [string, GeminiGenerateOptions?]>();
  */
 const embedQuery = jest.fn<Promise<number[]>, [string]>();
 
+/**
+ * recommend 갈래가 부르는 장소 검색. embedQuery와 같은 함정이다 —
+ * 오버라이드하지 않으면 ENV의 QDRANT_URL로 실제 요청이 나간다.
+ */
+const search = jest.fn<
+  Promise<TourSearchHit[]>,
+  [number[], QdrantSearchOptions?]
+>();
+
+/** 검색이 돌려주는 hit 하나. title만 화면에 나가므로 나머지는 형식만 채운다. */
+const TOUR_HIT: TourSearchHit = {
+  id: 'point-1',
+  score: 0.9,
+  payload: {
+    contentid: '126508',
+    contenttypeid: '12',
+    ldong_regn_cd: '50',
+    ldong_signgu_cd: '130',
+    lcls_systm1: 'AC',
+    lcls_systm2: 'AC01',
+    lcls_systm3: 'AC0101',
+    title: '성산일출봉',
+    mapx: '126.9',
+    mapy: '33.4',
+  },
+};
+
 /** 파싱에 성공하는 구조화 응답. 조건 하나만 담아 요약이 '미지정'이 되지 않게 한다. */
 const QUERY_RESPONSE = [
   '[조건]',
@@ -121,6 +153,7 @@ describe('ChatController', () => {
     generate.mockReset();
     mockGemini('other', OTHER_RESPONSE);
     embedQuery.mockReset().mockResolvedValue([0.1, 0.2, 0.3]);
+    search.mockReset().mockResolvedValue([TOUR_HIT]);
     // 폴백 경로를 도는 테스트가 있어 스파이를 걸지 않으면 콘솔이 WARN으로 덮인다.
     jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     jest.spyOn(Logger.prototype, 'debug').mockImplementation();
@@ -139,6 +172,8 @@ describe('ChatController', () => {
       .useValue({ generate })
       .overrideProvider(TeiClient)
       .useValue({ embedQuery })
+      .overrideProvider(QdrantSearchClient)
+      .useValue({ search })
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -156,7 +191,7 @@ describe('ChatController', () => {
     jest.restoreAllMocks();
   });
 
-  it('ChatModule이 네 협력자와 Gemini 주입 경로를 제공한다', async () => {
+  it('ChatModule이 다섯 협력자와 Gemini 주입 경로를 제공한다', async () => {
     // ClientsModule import가 사라지면 이 요청 자체가 부팅 단계에서 죽는다.
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
@@ -172,8 +207,8 @@ describe('ChatController', () => {
       .useValue({ generate })
       .compile();
 
-    // 넷을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
-    // 단계에서 죽으므로, 제목이 말하는 "네 협력자"를 여기서 그대로 단정한다.
+    // 다섯을 모두 센다. 하나라도 provider에서 빠지면 ChatService 주입이 부팅
+    // 단계에서 죽으므로, 제목이 말하는 "다섯 협력자"를 여기서 그대로 단정한다.
     expect(moduleFixture.get(IntentClassifier)).toBeInstanceOf(
       IntentClassifier,
     );
@@ -183,6 +218,9 @@ describe('ChatController', () => {
     // 여기서만 오버라이드하지 않는 이유는 실물이어야 그 export가 끊긴 것을
     // 잡을 수 있기 때문이다 — 생성자는 네트워크를 만지지 않아 안전하다.
     expect(moduleFixture.get(TeiClient)).toBeInstanceOf(TeiClient);
+    expect(moduleFixture.get(QdrantSearchClient)).toBeInstanceOf(
+      QdrantSearchClient,
+    );
   });
 
   it('reply와 itinerary를 200으로 돌려준다', async () => {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { QdrantSearchClient } from '../clients/qdrant/qdrant.client';
 import { TeiClient } from '../clients/tei/tei.client';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
@@ -11,6 +12,15 @@ import { buildPlanReply } from './plan/plan-reply';
 import { buildRecommendReply } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
+/**
+ * 장소 추천 갈래가 받아오는 검색 결과 개수. 고정값이다.
+ *
+ * QdrantSearchClient의 기본값도 10이지만 생략하지 않는다 — 개수가 이 갈래의
+ * 사용자 계약이므로, 클라이언트 기본값이 바뀌면 조용히 따라 움직이는 자리에
+ * 두지 않는다.
+ */
+const RECOMMEND_SEARCH_LIMIT = 10;
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -20,12 +30,13 @@ export class ChatService {
     private readonly queryStructurer: QueryStructurer,
     private readonly otherResponder: OtherResponder,
     private readonly tei: TeiClient,
+    private readonly qdrant: QdrantSearchClient,
   ) {}
 
   /**
    * 메시지를 분류해 갈래로 보낸다.
    *
-   * 협력자 넷이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
+   * 협력자 다섯이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
    * kind별로 500/502/503/504로 매핑한다. 여기서 삼키면 쿼터 소진이
    * "여행과 무관한 메시지"로 둔갑한다.
    */
@@ -80,17 +91,45 @@ export class ChatService {
    * 요청의 일정을 되돌려주지 않는다. 되돌려주면 "화면에 띄울 일정이 있다"를 이
    * 갈래도 주장하게 되고, planStatus를 만드는 지점이 둘로 늘어난다.
    *
-   * TODO: 조건에 맞는 장소 목록을 붙이는 자리. 목록은 일정이 아니므로 이 갈래는
-   * 그때도 planStatus를 만들지 않는다.
+   * 장소 목록을 붙여도 planStatus를 만들지 않는다 — 목록은 일정이 아니다.
+   *
+   * 검색은 벡터만으로 돈다. conditions를 payload 필터로 바꾸려면 이름을
+   * ldong_regn_cd·contenttypeid로 옮기는 Postgres 코드표가 필요하고 그건
+   * 사내망 전용이다(structured-query.ts의 QueryConditions 주석). 코드표 없이
+   * 이름 문자열로 필터하면 payload의 어떤 값과도 매치되지 않아 전 요청이
+   * "결과 없음"이 된다 — 필터를 안 거는 것보다 나쁘다.
    */
   private async replyRecommend(
     request: ChatRequestDto,
   ): Promise<ChatResponseDto> {
     const query = await this.queryStructurer.structure(request.message);
+    const embedding = await this.embedQueryText(query.queryText);
 
-    await this.embedQueryText(query.queryText);
+    if (embedding !== null) {
+      await this.searchPlaces(embedding);
+    }
 
     return buildChatResponse(buildRecommendReply(query), null);
+  }
+
+  /**
+   * 질의 벡터로 장소를 찾는다.
+   *
+   * 실패는 삼키지 않는다. 여기서 빈 배열로 축퇴시키면 Qdrant 장애가 "조건에
+   * 맞는 장소가 없다"로 둔갑하고, 사용자는 자기 조건을 고치려 든다.
+   *
+   * TODO: 돌려받은 이름을 응답 문구에 싣는 자리. 아직 소비자가 없어 hit 수만
+   * 로그로 남긴다. 버려진 hit(payload 파싱 실패)이 있으면 이 수와 화면의 이름
+   * 개수가 어긋나므로, 이 로그는 소비자가 붙은 뒤에도 대조 기준으로 남는다.
+   */
+  private async searchPlaces(embedding: number[]): Promise<string[]> {
+    const hits = await this.qdrant.search(embedding, {
+      limit: RECOMMEND_SEARCH_LIMIT,
+    });
+
+    this.logger.debug(`장소 검색 완료: hit=${hits.length}`);
+
+    return hits.map((hit) => hit.payload.title);
   }
 
   /**
@@ -108,24 +147,26 @@ export class ChatService {
    * MaxLength와 같은 판단). 정상 경로의 queryText에는 라벨이 붙으므로
    * 이 분기는 폴백 전용이다.
    *
-   * 실패는 삼키지 않는다 — 협력자 넷에 같은 규칙이 걸린다.
+   * 실패는 삼키지 않는다 — 협력자 다섯에 같은 규칙이 걸린다.
    *
-   * TODO: 이 벡터로 Qdrant를 검색하는 자리. 아직 소비자가 없어 차원만 남긴다.
-   * 차원은 컬렉션과 맞아야 하는데 코드가 강제하지 않으므로, 이 로그가 붙는
-   * 시점의 유일한 관측 수단이다. 검색이 붙으면 건너뛴 요청은 벡터 없이
-   * 조건 필터만으로 도는 경로가 된다.
+   * 건너뛴 요청은 null을 받는다. 호출자가 그 요청을 검색 없이 처리해야 하기
+   * 때문이다 — 빈 배열을 벡터로 지어 넘기면 질의와 아무 관계 없는 이웃이
+   * 추천으로 나간다. 차원 로그는 남긴다: 컬렉션과 맞아야 하는데 코드가
+   * 강제하지 않아, 차원 불일치를 볼 수 있는 지점이 여기 하나다.
    */
-  private async embedQueryText(queryText: string): Promise<void> {
+  private async embedQueryText(queryText: string): Promise<number[] | null> {
     if (queryText.trim() === '') {
       this.logger.warn(
         '질의 임베딩 건너뜀: 질의 텍스트가 비어 있어 검색 재료를 만들지 못했습니다.',
       );
-      return;
+      return null;
     }
 
     const embedding = await this.tei.embedQuery(queryText);
 
     this.logger.debug(`질의 임베딩 완료: 차원=${embedding.length}`);
+
+    return embedding;
   }
 
   /**
