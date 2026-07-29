@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
-import { OTHER_REPLY } from './other/other-prompt';
+import { OtherResponder } from './other/other.responder';
 import { buildStructuredReply } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
@@ -12,12 +12,13 @@ export class ChatService {
   constructor(
     private readonly intentClassifier: IntentClassifier,
     private readonly queryStructurer: QueryStructurer,
+    private readonly otherResponder: OtherResponder,
   ) {}
 
   /**
    * 메시지를 분류해 갈래로 보낸다.
    *
-   * 협력자가 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
+   * 협력자 셋이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
    * kind별로 500/502/503/504로 매핑한다. 여기서 삼키면 쿼터 소진이
    * "여행과 무관한 메시지"로 둔갑한다.
    */
@@ -63,10 +64,13 @@ export class ChatService {
     };
   }
 
-  /** TODO: OtherResponder에 위임하는 자리. 지금은 안내 문구만 돌려준다. */
-  private replyOther(request: ChatRequestDto): ChatResponseDto {
+  /**
+   * 대화 응답을 만든다. 이 갈래는 일정을 만들지 않으므로 itinerary가
+   * 입력 그대로 나가는 것이 최종 형태다 — 위 두 갈래와 달리 TODO가 없다.
+   */
+  private async replyOther(request: ChatRequestDto): Promise<ChatResponseDto> {
     return {
-      reply: OTHER_REPLY,
+      reply: await this.otherResponder.respond(request.message),
       itinerary: request.itinerary,
     };
   }

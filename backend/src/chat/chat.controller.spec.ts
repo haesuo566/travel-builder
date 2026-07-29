@@ -61,6 +61,9 @@ const QUERY_RESPONSE = [
   '무엇을 하는 곳: 일출 감상',
 ].join('\n');
 
+/** 검증을 통과하는 대화 응답. OTHER_REPLY와 달라야 폴백과 정상을 구별할 수 있다. */
+const OTHER_RESPONSE = '제주는 사계절 모두 좋아요. 어느 계절이 좋으세요?';
+
 /**
  * 구조화 갈래는 요청 하나에 generate를 두 번 부른다 — 분류 1회 + 갈래별 1회.
  * 그래서 호출 지점을 systemInstruction으로 가른다. mockResolvedValueOnce 사슬을
@@ -97,7 +100,8 @@ describe('ChatController', () => {
   beforeEach(async () => {
     // 기존 계약 테스트들은 분류 결과에 의존하지 않는다. other로 고정해 두면
     // 세 갈래 중 하나가 항상 성립하고, 분기별 단정은 각 테스트가 따로 지정한다.
-    generate.mockReset().mockResolvedValue('other');
+    generate.mockReset();
+    mockGemini('other', OTHER_RESPONSE);
     // 폴백 경로를 도는 테스트가 있어 스파이를 걸지 않으면 콘솔이 WARN으로 덮인다.
     jest.spyOn(Logger.prototype, 'warn').mockImplementation();
 
@@ -231,7 +235,9 @@ describe('ChatController', () => {
     const replies: string[] = [];
 
     for (const intent of ['plan_itinerary', 'recommend_places', 'other']) {
-      mockGemini(intent, QUERY_RESPONSE);
+      // 구조화 갈래는 QUERY_RESPONSE를, other 갈래는 그 문자열을 그대로 대화
+      // 응답으로 받는다 — 검증을 통과하므로 셋이 서로 다른 문구가 된다.
+      mockGemini(intent, intent === 'other' ? OTHER_RESPONSE : QUERY_RESPONSE);
 
       const response = await request(app.getHttpServer())
         .post('/chat')
@@ -243,20 +249,33 @@ describe('ChatController', () => {
 
     expect(replies[0]).toContain(PLAN_REPLY_HEAD);
     expect(replies[1]).toContain(RECOMMEND_REPLY_HEAD);
-    expect(replies[2]).toBe(OTHER_REPLY);
+    expect(replies[2]).toBe(OTHER_RESPONSE);
     // 세 문구가 실제로 갈리는지 센다. 위 셋만으로는 두 구조화 갈래가 같은
     // 문장이 돼도(머리말만 다르고 나머지가 뭉개져도) 통과할 수 있다.
     expect(new Set(replies).size).toBe(3);
   });
 
-  it('해석할 수 없는 응답이면 200 + other 문구가 나간다', async () => {
+  it('분류를 해석할 수 없으면 200 + other 갈래 응답이 나간다', async () => {
     // 폴백이 HTTP까지 관통한다. 진짜 other와 바이트 단위로 같은 응답이며
     // 구별은 IntentClassifier의 warn 로그에만 존재한다.
-    generate.mockResolvedValue('분류: plan_itinerary 입니다');
+    mockGemini('분류: plan_itinerary 입니다', OTHER_RESPONSE);
 
     const response = await request(app.getHttpServer())
       .post('/chat')
       .send({ message: '제주 2박3일 일정 짜줘', itinerary: createItinerary() })
+      .expect(200);
+
+    expect((response.body as ChatResponseDto).reply).toBe(OTHER_RESPONSE);
+  });
+
+  it('대화 응답이 상한을 넘으면 200 + 고정 문구가 나간다', async () => {
+    // OtherResponder의 폴백이 HTTP까지 관통한다. 이 경로가 없으면 상한
+    // 초과가 502로 새거나 빈 말풍선이 되는 회귀를 아무도 잡지 못한다.
+    mockGemini('other', '가'.repeat(501));
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '안녕', itinerary: createItinerary() })
       .expect(200);
 
     expect((response.body as ChatResponseDto).reply).toBe(OTHER_REPLY);
@@ -311,8 +330,9 @@ describe('ChatController', () => {
       .send({ message: '가'.repeat(1000), itinerary: createItinerary() })
       .expect(200);
 
-    expect((response.body as ChatResponseDto).reply).toBe(OTHER_REPLY);
-    expect(generate).toHaveBeenCalledTimes(1);
+    expect((response.body as ChatResponseDto).reply).toBe(OTHER_RESPONSE);
+    // 2회다 — 분류 1회 + other 갈래 1회. 갈래 호출이 사라지면 여기가 깨진다.
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('message가 1001자면 400이고 gemini를 호출하지 않는다', async () => {

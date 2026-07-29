@@ -5,7 +5,7 @@ import { ChatService } from './chat.service';
 import type { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatIntent } from './intent/chat-intent';
 import { IntentClassifier } from './intent/intent.classifier';
-import { OTHER_REPLY } from './other/other-prompt';
+import { OtherResponder } from './other/other.responder';
 import { buildStructuredReply } from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 import type { StructuredQuery } from './query/structured-query';
@@ -22,6 +22,7 @@ type StructuredIntent = 'plan_itinerary' | 'recommend_places';
 
 const classify = jest.fn<Promise<ChatIntent>, [string]>();
 const structure = jest.fn<Promise<StructuredQuery>, [string]>();
+const respond = jest.fn<Promise<string>, [string]>();
 
 const STRUCTURED: StructuredQuery = {
   queryText: '무엇을 하는 곳: 일출 감상',
@@ -29,6 +30,13 @@ const STRUCTURED: StructuredQuery = {
   droppedLabels: [],
   fellBackToRawMessage: false,
 };
+
+/**
+ * OtherResponder가 돌려주는 값. OTHER_REPLY를 쓰지 않는다 — 그 상수는 이제
+ * responder 안쪽의 폴백이고, 여기서 쓰면 위임이 끊겨도 값이 같아 통과한다.
+ */
+const OTHER_RESPONSE =
+  '제주는 사계절 모두 좋아요. 어느 계절을 생각하고 계신가요?';
 
 function createRequest(message: string): ChatRequestDto {
   return {
@@ -64,6 +72,7 @@ async function createService(): Promise<ChatService> {
       ChatService,
       { provide: IntentClassifier, useValue: { classify } },
       { provide: QueryStructurer, useValue: { structure } },
+      { provide: OtherResponder, useValue: { respond } },
     ],
   }).compile();
   return moduleRef.get(ChatService);
@@ -76,6 +85,7 @@ function quotaFailure(): ExternalServiceError {
 beforeEach(() => {
   classify.mockReset();
   structure.mockReset().mockResolvedValue(STRUCTURED);
+  respond.mockReset().mockResolvedValue(OTHER_RESPONSE);
 });
 
 describe('ChatService — 갈래 라우팅', () => {
@@ -99,13 +109,13 @@ describe('ChatService — 갈래 라우팅', () => {
     },
   );
 
-  it('other는 안내 문구를 돌려준다', async () => {
+  it('other는 OtherResponder의 응답을 그대로 돌려준다', async () => {
     classify.mockResolvedValue('other');
     const service = await createService();
 
     const response = await service.chat(createRequest('안녕'));
 
-    expect(response.reply).toBe(OTHER_REPLY);
+    expect(response.reply).toBe(OTHER_RESPONSE);
   });
 
   const allIntents: ChatIntent[] = [
@@ -163,6 +173,28 @@ describe('ChatService — 구조화 위임', () => {
   });
 });
 
+describe('ChatService — 대화 위임', () => {
+  it('other 갈래는 OtherResponder를 message만으로 한 번 호출한다', async () => {
+    classify.mockResolvedValue('other');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 어때?'));
+
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(respond).toHaveBeenCalledWith('제주 어때?');
+  });
+
+  it('↔ 짝: 구조화 갈래는 OtherResponder를 호출하지 않는다', async () => {
+    // 구조화 갈래가 대화 응답까지 부르면 요청 하나에 Gemini 왕복이 셋이 된다.
+    classify.mockResolvedValue('plan_itinerary');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 2박3일'));
+
+    expect(respond).not.toHaveBeenCalled();
+  });
+});
+
 describe('ChatService — 실패를 삼키지 않는다', () => {
   it('분류기가 던진 ExternalServiceError를 삼키지 않는다', async () => {
     // 여기에 try/catch를 두면 쿼터 소진이 200 + 안내 문구가 되고
@@ -185,5 +217,16 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
     await expect(service.chat(createRequest('제주 2박3일'))).rejects.toBe(
       failure,
     );
+  });
+
+  it('OtherResponder가 던진 ExternalServiceError를 삼키지 않는다', async () => {
+    // 세 협력자에 대해 대칭으로 고정한다. other 갈래는 폴백 문구가 정상 응답과
+    // 구별되지 않으므로, 여기서 삼키면 쿼터 소진이 평범한 대화로 보인다.
+    const failure = quotaFailure();
+    classify.mockResolvedValue('other');
+    respond.mockRejectedValue(failure);
+    const service = await createService();
+
+    await expect(service.chat(createRequest('안녕'))).rejects.toBe(failure);
   });
 });
