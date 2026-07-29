@@ -1,14 +1,5 @@
 import type { ChatResponse, Itinerary } from "../types";
-import { getDefaultItinerary } from "../mock/itineraries";
 import { parseChatResponse } from "./chat-response";
-
-/**
- * 최초 일정은 아직 mock이다. 백엔드에 대응 엔드포인트(GET /itinerary류)가 없고,
- * 만드는 것은 backend 워크스페이스 작업이라 이번 범위 밖이다.
- */
-export async function getItinerary(): Promise<Itinerary> {
-  return getDefaultItinerary();
-}
 
 /** 서버가 사용자에게 보여줄 문구를 주지 못했을 때 쓴다. */
 const FALLBACK_ERROR_MESSAGE =
