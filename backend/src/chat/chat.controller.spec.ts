@@ -14,7 +14,12 @@ import { INTENT_SYSTEM_INSTRUCTION } from './intent/intent-prompt';
 import { IntentClassifier } from './intent/intent.classifier';
 import { OTHER_REPLY } from './other/other-prompt';
 import { OtherResponder } from './other/other.responder';
-import { PLAN_REPLY_HEAD, RECOMMEND_REPLY_HEAD } from './query/query-reply';
+import {
+  NO_CONDITIONS_SUMMARY,
+  PLAN_REPLY_HEAD,
+  PLAN_REPLY_TAIL,
+  RECOMMEND_REPLY_HEAD,
+} from './query/query-reply';
 import { QueryStructurer } from './query/query.structurer';
 
 /**
@@ -279,6 +284,23 @@ describe('ChatController', () => {
       .expect(200);
 
     expect((response.body as ChatResponseDto).reply).toBe(OTHER_REPLY);
+  });
+
+  it('질의 구조화에 실패하면 200 + 조건 미지정 요약이 나간다', async () => {
+    // ↔ 위 짝. 구조화 폴백도 HTTP까지 관통한다. 사용자 원문은 queryText로
+    // 폴백되지만 화면에는 절대 나가지 않는다 — 그 경계가 여기서 고정된다.
+    mockGemini('plan_itinerary', '[조건]\n지역: 제주');
+
+    const response = await request(app.getHttpServer())
+      .post('/chat')
+      .send({ message: '제주 2박3일 짜줘', itinerary: createItinerary() })
+      .expect(200);
+
+    const { reply } = response.body as ChatResponseDto;
+    expect(reply).toBe(
+      `${PLAN_REPLY_HEAD} — ${NO_CONDITIONS_SUMMARY}. ${PLAN_REPLY_TAIL}`,
+    );
+    expect(reply).not.toContain('제주 2박3일 짜줘');
   });
 
   it('gemini가 quota로 실패하면 503 + Retry-After가 나간다', async () => {
