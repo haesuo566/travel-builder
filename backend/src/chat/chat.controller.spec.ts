@@ -10,12 +10,12 @@ import type { GeminiGenerateOptions } from '../clients/gemini/gemini.client';
 import { GeminiClient } from '../clients/gemini/gemini.client';
 import { ChatModule } from './chat.module';
 import {
-  OTHER_REPLY,
   PLAN_ITINERARY_PLACEHOLDER_REPLY,
   RECOMMEND_PLACES_PLACEHOLDER_REPLY,
 } from './chat.service';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
+import { OTHER_REPLY } from './other/other-prompt';
 import { OtherResponder } from './other/other.responder';
 import { QueryStructurer } from './query/query.structurer';
 

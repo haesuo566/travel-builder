@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { IntentClassifier } from './intent/intent.classifier';
+import { OTHER_REPLY } from './other/other-prompt';
 
 /**
  * 분기별 임시 문구. 실제 구현이 들어오면 해당 상수와 메서드 본문이 함께 사라진다.
@@ -13,10 +14,6 @@ export const PLAN_ITINERARY_PLACEHOLDER_REPLY =
 
 export const RECOMMEND_PLACES_PLACEHOLDER_REPLY =
   '여행지를 추천해 드리는 기능은 아직 준비 중이에요. 조금만 기다려 주세요.';
-
-/** 프론트엔드 mock의 폴백 문구(frontend/src/lib/mock/scenarios.ts:39-43)와 같은 값이다. */
-export const OTHER_REPLY =
-  "어디로 떠나고 싶으신가요? '제주 2박3일'처럼 목적지와 기간을 말씀해주시면 바로 일정을 만들어드릴게요.";
 
 @Injectable()
 export class ChatService {

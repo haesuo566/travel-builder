@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { GeminiClient } from '../../clients/gemini/gemini.client';
-import { OTHER_REPLY } from '../chat.service';
 import {
   buildOtherPrompt,
+  OTHER_REPLY,
   OTHER_REPLY_MAX_LENGTH,
   OTHER_SYSTEM_INSTRUCTION,
   validateOtherReply,

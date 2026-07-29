@@ -1,5 +1,6 @@
 import {
   buildOtherPrompt,
+  OTHER_REPLY,
   OTHER_SYSTEM_INSTRUCTION,
   validateOtherReply,
 } from './other-prompt';
@@ -38,6 +39,15 @@ describe('OTHER_SYSTEM_INSTRUCTION', () => {
     // 신규 함정 4의 유일한 방어선이다. 모델이 "3일 코스를 짜 드렸어요"라고 답하면
     // itinerary는 입력 그대로이므로 응답과 화면이 어긋난다.
     expect(OTHER_SYSTEM_INSTRUCTION).toContain('일정을 직접 짜 주지 않는다');
+  });
+});
+
+describe('OTHER_REPLY', () => {
+  it('검증기를 그대로 통과한다', () => {
+    // 폴백 문구 자체가 상한에 걸리면 이 갈래는 검증 실패 시 돌려줄 값이 없다.
+    // 상수와 검증기가 같은 파일에 있어야 그 사실이 한자리에서 드러난다 —
+    // chat.service.ts에 두면 other.responder → chat.service 순환도 함께 생긴다.
+    expect(validateOtherReply(OTHER_REPLY)).toBe(OTHER_REPLY);
   });
 });
 

@@ -3,13 +3,13 @@ import { Test } from '@nestjs/testing';
 import { ExternalServiceError } from '../clients/external-service.error';
 import {
   ChatService,
-  OTHER_REPLY,
   PLAN_ITINERARY_PLACEHOLDER_REPLY,
   RECOMMEND_PLACES_PLACEHOLDER_REPLY,
 } from './chat.service';
 import type { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatIntent } from './intent/chat-intent';
 import { IntentClassifier } from './intent/intent.classifier';
+import { OTHER_REPLY } from './other/other-prompt';
 
 /**
  * 분기 라우팅만 본다. 모킹 경계는 IntentClassifier다 — 분류 자체는

@@ -4,8 +4,7 @@ import { Test } from '@nestjs/testing';
 import { ExternalServiceError } from '../../clients/external-service.error';
 import type { GeminiGenerateOptions } from '../../clients/gemini/gemini.client';
 import { GeminiClient } from '../../clients/gemini/gemini.client';
-import { OTHER_REPLY } from '../chat.service';
-import { OTHER_SYSTEM_INSTRUCTION } from './other-prompt';
+import { OTHER_REPLY, OTHER_SYSTEM_INSTRUCTION } from './other-prompt';
 import { OtherResponder } from './other.responder';
 
 /**

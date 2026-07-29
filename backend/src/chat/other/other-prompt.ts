@@ -1,4 +1,15 @@
 /**
+ * 검증에 걸린 응답을 대체하는 고정 문구. 프론트엔드 mock의 폴백 문구
+ * (frontend/src/lib/mock/scenarios.ts:39-43)와 같은 값이다.
+ *
+ * chat.service.ts에 있던 것을 옮겼다. ChatService가 OtherResponder를 주입받으면
+ * chat.service → other.responder → chat.service 순환이 생기는데, 이 값은
+ * other 갈래의 폴백일 뿐이고 그 갈래의 고정 문자열이 전부 이 파일에 있다.
+ */
+export const OTHER_REPLY =
+  "어디로 떠나고 싶으신가요? '제주 2박3일'처럼 목적지와 기간을 말씀해주시면 바로 일정을 만들어드릴게요.";
+
+/**
  * 응답 길이 상한.
  *
  * 500을 고른 근거: 프론트 mock의 정적 reply 3건이 58·67·69자이고
