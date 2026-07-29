@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
+import { TeiClient } from '../clients/tei/tei.client';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatResponseDto } from './dto/chat-response.dto';
 import { buildChatResponse } from './dto/chat-response.dto';
@@ -12,16 +13,19 @@ import { QueryStructurer } from './query/query.structurer';
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     private readonly intentClassifier: IntentClassifier,
     private readonly queryStructurer: QueryStructurer,
     private readonly otherResponder: OtherResponder,
+    private readonly tei: TeiClient,
   ) {}
 
   /**
    * 메시지를 분류해 갈래로 보낸다.
    *
-   * 협력자 셋이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
+   * 협력자 넷이 던진 ExternalServiceError를 잡지 않는다 — 전역 필터가
    * kind별로 500/502/503/504로 매핑한다. 여기서 삼키면 쿼터 소진이
    * "여행과 무관한 메시지"로 둔갑한다.
    */
@@ -84,7 +88,29 @@ export class ChatService {
   ): Promise<ChatResponseDto> {
     const query = await this.queryStructurer.structure(request.message);
 
+    await this.embedQueryText(query.queryText);
+
     return buildChatResponse(buildRecommendReply(query), null);
+  }
+
+  /**
+   * 재조립된 질의 텍스트를 벡터로 만든다.
+   *
+   * 임베딩 대상은 queryText 하나다. Gemini의 파싱 전 응답을 넘기지 않는다 —
+   * '[조건]' 마커와 조건 줄이 벡터에 섞이면 core가 색인한 의미 축 텍스트와
+   * 다른 공간이 되고, 같은 장소가 검색되지 않는다. 재조립이 임베딩 대상을
+   * 만드는 공정이다(parseStructuredQuery의 '벡터에 들어가지 않는다' 주석).
+   *
+   * 실패는 삼키지 않는다 — 협력자 넷에 같은 규칙이 걸린다.
+   *
+   * TODO: 이 벡터로 Qdrant를 검색하는 자리. 아직 소비자가 없어 차원만 남긴다.
+   * 차원은 컬렉션과 맞아야 하는데 코드가 강제하지 않으므로, 이 로그가 붙는
+   * 시점의 유일한 관측 수단이다.
+   */
+  private async embedQueryText(queryText: string): Promise<void> {
+    const embedding = await this.tei.embedQuery(queryText);
+
+    this.logger.debug(`질의 임베딩 완료: 차원=${embedding.length}`);
   }
 
   /**

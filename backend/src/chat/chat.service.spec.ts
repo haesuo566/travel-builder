@@ -1,6 +1,8 @@
+import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import { ExternalServiceError } from '../clients/external-service.error';
+import { TeiClient } from '../clients/tei/tei.client';
 import { ChatService } from './chat.service';
 import type { ChatRequestDto } from './dto/chat-request.dto';
 import type { ChatIntent } from './intent/chat-intent';
@@ -27,6 +29,10 @@ import { EMPTY_CONDITIONS } from './query/structured-query';
 const classify = jest.fn<Promise<ChatIntent>, [string]>();
 const structure = jest.fn<Promise<StructuredQuery>, [string]>();
 const respond = jest.fn<Promise<string>, [string]>();
+const embedQuery = jest.fn<Promise<number[]>, [string]>();
+
+/** TeiClient가 돌려주는 벡터. 차원이 로그에 실리는지 세려고 길이를 3으로 둔다. */
+const EMBEDDING = [0.1, 0.2, 0.3];
 
 const STRUCTURED: StructuredQuery = {
   queryText: '무엇을 하는 곳: 일출 감상',
@@ -95,6 +101,7 @@ async function createService(): Promise<ChatService> {
       { provide: IntentClassifier, useValue: { classify } },
       { provide: QueryStructurer, useValue: { structure } },
       { provide: OtherResponder, useValue: { respond } },
+      { provide: TeiClient, useValue: { embedQuery } },
     ],
   }).compile();
   return moduleRef.get(ChatService);
@@ -104,10 +111,30 @@ function quotaFailure(): ExternalServiceError {
   return new ExternalServiceError('gemini', 'quota', '쿼터 소진');
 }
 
+/**
+ * 로그 메시지. jest.SpyInstance의 mock.calls 원소는 any로 추론돼
+ * no-unsafe-member-access에 걸린다 — unknown을 거쳐 좁힌다
+ * (query.structurer.spec.ts:42-45와 같은 관용구).
+ */
+function firstMessage(spy: jest.SpyInstance): string {
+  const calls = spy.mock.calls as unknown as unknown[][];
+  return String(calls[0][0]);
+}
+
+let debugLog: jest.SpyInstance;
+
 beforeEach(() => {
   classify.mockReset();
   structure.mockReset().mockResolvedValue(STRUCTURED);
   respond.mockReset().mockResolvedValue(OTHER_RESPONSE);
+  embedQuery.mockReset().mockResolvedValue(EMBEDDING);
+  // 스파이를 걸지 않으면 임베딩 갈래를 도는 테스트마다 콘솔이 로그로 덮인다.
+  debugLog = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
+  jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('ChatService — 갈래별 planStatus와 itinerary', () => {
@@ -293,6 +320,76 @@ describe('ChatService — 구조화 위임', () => {
   );
 });
 
+describe('ChatService — 질의 임베딩', () => {
+  it('recommend_places는 재조립된 queryText로 임베딩을 한 번 만든다', async () => {
+    // 사용자 원문이 아니라 queryText다. 원문을 그대로 넘기면 core가 색인한
+    // 의미 축 텍스트와 다른 공간의 벡터가 되고, 같은 장소가 검색되지 않는다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(embedQuery).toHaveBeenCalledTimes(1);
+    expect(embedQuery).toHaveBeenCalledWith(STRUCTURED.queryText);
+  });
+
+  it('만들어진 벡터의 차원을 로그로 남긴다', async () => {
+    // 벡터를 아직 아무도 쓰지 않으므로 "실제로 받았다"의 관측 수단이 이 로그
+    // 하나다. 차원은 Qdrant 컬렉션과 맞아야 하는데 코드가 강제하지 않는다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(firstMessage(debugLog)).toContain(`차원=${EMBEDDING.length}`);
+  });
+
+  const nonEmbeddingIntents: ChatIntent[] = ['plan_itinerary', 'other'];
+
+  it.each(nonEmbeddingIntents)(
+    '↔ 짝: %s는 임베딩하지 않는다',
+    async (intent) => {
+      // 구조화를 거치지 않는 갈래에는 임베딩할 질의가 없다. 부르면 결과를 버리는
+      // TEI 왕복이 하나 늘고, 그 왕복의 실패가 돌려줄 수 있었던 요청을 502로 만든다.
+      classify.mockResolvedValue(intent);
+      const service = await createService();
+
+      await service.chat(createRequest(PLAN_MESSAGE));
+
+      expect(embedQuery).not.toHaveBeenCalled();
+    },
+  );
+
+  it('구조화 폴백에서도 원문 질의를 임베딩한다', async () => {
+    // 폴백은 "질의를 못 만들었다"가 아니라 "원문을 질의로 쓴다"는 계약이다
+    // (QueryStructurer.structure). 원문에도 검색 가치가 있으므로 건너뛰지 않는다.
+    classify.mockResolvedValue('recommend_places');
+    structure.mockResolvedValue({
+      queryText: '제주 일출 명소 추천',
+      conditions: { ...EMPTY_CONDITIONS },
+      droppedLabels: [],
+      fellBackToRawMessage: true,
+    });
+    const service = await createService();
+
+    await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(embedQuery).toHaveBeenCalledTimes(1);
+    expect(embedQuery).toHaveBeenCalledWith('제주 일출 명소 추천');
+  });
+
+  it('임베딩을 만들어도 응답에 벡터를 싣지 않는다', async () => {
+    // 벡터는 검색 재료이지 UI 계약이 아니다. 한 번 실으면 프론트가 의존하게 되고
+    // 응답 본문이 요청당 수 KB로 불어난다.
+    classify.mockResolvedValue('recommend_places');
+    const service = await createService();
+
+    const response = await service.chat(createRequest('제주 일출 명소 추천'));
+
+    expect(JSON.stringify(response)).not.toContain('0.1');
+  });
+});
+
 describe('ChatService — 대화 위임', () => {
   it('other 갈래는 OtherResponder를 message만으로 한 번 호출한다', async () => {
     classify.mockResolvedValue('other');
@@ -339,6 +436,19 @@ describe('ChatService — 실패를 삼키지 않는다', () => {
     const failure = quotaFailure();
     classify.mockResolvedValue('recommend_places');
     structure.mockRejectedValue(failure);
+    const service = await createService();
+
+    await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(
+      failure,
+    );
+  });
+
+  it('TeiClient가 던진 ExternalServiceError를 삼키지 않는다', async () => {
+    // 협력자 넷에 대해 대칭으로 고정한다. 여기서 삼키면 TEI 장애가 200 + 정상
+    // 요약이 되고, 검색 재료가 없다는 사실이 응답 어디에도 나타나지 않는다.
+    const failure = new ExternalServiceError('tei', 'unavailable', '연결 실패');
+    classify.mockResolvedValue('recommend_places');
+    embedQuery.mockRejectedValue(failure);
     const service = await createService();
 
     await expect(service.chat(createRequest('제주 관광지'))).rejects.toBe(
